@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>AeroLine - Réservation de Vol (Démo TactileSeat)</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f4f6f9;
+      margin: 0;
+      padding: 30px;
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 25px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 22px;
+      color: #1a365d;
+    }
+    .flight-info {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 2px solid #edf2f7;
+      padding-bottom: 12px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      color: #4a5568;
+    }
+    .canvas-container {
+      display: flex;
+      justify-content: center;
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    canvas {
+      background-color: #ffffff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+      border-radius: 4px;
+    }
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      font-size: 13px;
+      margin-bottom: 20px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legend-box {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+    }
+    .interactive-zone {
+      border-top: 1px solid #edf2f7;
+      padding-top: 15px;
+    }
+    .selection-log {
+      margin-top: 10px;
+      padding: 10px;
+      background: #ebf8ff;
+      border: 1px solid #bee3f8;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #2b6cb0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Sélectionnez votre siège — Vol AL-402</h1>
+  
+  <div class="flight-info">
+    <span><strong>Vol :</strong> Paris (CDG) ➔ Séoul (ICN)</span>
+    <span><strong>Appareil :</strong> Airbus A321neo</span>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-box" style="background-color: #3182ce;"></div>
+      <span>Disponible</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-box" style="background-color: #a0aec0;"></div>
+      <span>Occupé</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-box" style="background-color: #e53e3e;"></div>
+      <span>Issue de secours</span>
+    </div>
+  </div>
+
+  <!-- Le Canvas que votre extension extrait automatiquement -->
+  <div class="canvas-container">
+    <canvas id="seatmap-canvas" width="460" height="340"></canvas>
+  </div>
+
+  <!-- Éléments DOM réels ciblés lors de la validation du clic -->
+  <div class="interactive-zone">
+    <div id="selection-status" class="selection-log">
+      Aucun siège sélectionné. En attente d'interaction...
+    </div>
+    
+    <!-- Boutons invisibles ou interactifs correspondant aux sièges -->
+    <div style="display: none;">
+      <button id="seat-1B" onclick="registerClick('1B', '15€')">Siège 1B</button>
+      <button id="seat-1C" onclick="registerClick('1C', '20€')">Siège 1C</button>
+      <button id="seat-3A" onclick="registerClick('3A', '45€')">Siège 3A</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById("seatmap-canvas");
+  const ctx = canvas.getContext("2d");
+
+  // Disposition 2D (0: Couloir, 1: Libre, 2: Occupé, 3: Issue)
+  const mapData = [
+    [2, 1, 1, 0, 1, 1, 2],
+    [2, 2, 1, 0, 1, 2, 2],
+    [3, 1, 1, 0, 1, 1, 3], // Rangée issue de secours
+    [2, 2, 2, 0, 2, 1, 1],
+    [1, 1, 1, 0, 1, 1, 2]
+  ];
+
+  function drawSeatMap() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Entête de cabine (Cockpit / Avant)
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fillRect(40, 20, 380, 20);
+    ctx.fillStyle = "#4a5568";
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("AVANT DE LA CABINE", canvas.width / 2, 35);
+
+    const startX = 60;
+    const startY = 60;
+    const seatW = 38;
+    const seatH = 38;
+    const gapX = 14;
+    const gapY = 16;
+    const aisleGap = 35;
+
+    mapData.forEach((row, r) => {
+      let currentX = startX;
+
+      // Numéro de rangée
+      ctx.fillStyle = "#718096";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(`R${r + 1}`, currentX - 15, startY + r * (seatH + gapY) + 24);
+
+      row.forEach((val, c) => {
+        const y = startY + r * (seatH + gapY);
+
+        if (val === 0) {
+          // Allée de circulation centrale
+          currentX += aisleGap;
+          return;
+        }
+
+        // Couleur selon l'état
+        if (val === 1) ctx.fillStyle = "#3182ce"; // Libre (bleu)
+        else if (val === 2) ctx.fillStyle = "#cbd5e0"; // Occupé (gris clair)
+        else if (val === 3) ctx.fillStyle = "#e53e3e"; // Issue (rouge)
+
+        // Dessin du siège
+        ctx.beginPath();
+        ctx.roundRect(currentX, y, seatW, seatH, 6);
+        ctx.fill();
+
+        // Lettre de colonne
+        const colLetters = ["A", "B", "C", "", "D", "E", "F"];
+        ctx.fillStyle = val === 2 ? "#718096" : "#ffffff";
+        ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(colLetters[c], currentX + seatW / 2, y + seatH / 2 + 4);
+
+        currentX += seatW + gapX;
+      });
+    });
+  }
+
+  // Fonction déclenchée lors de la simulation de clic par l'extension
+  function registerClick(seatId, price) {
+    const log = document.getElementById("selection-status");
+    log.innerHTML = `<strong>Succès :</strong> Siège <strong>${seatId}</strong> sélectionné avec succès (${price}) via l'extension TactileSeat !`;
+    log.style.backgroundColor = "#c6f6d5";
+    log.style.borderColor = "#9ae6b4";
+    log.style.color = "#22543d";
+  }
+
+  // Rendu initial du plan
+  drawSeatMap();
+</script>
+
+</body>
+</html>
