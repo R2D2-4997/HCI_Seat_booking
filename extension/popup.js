@@ -1,53 +1,50 @@
 const statusDiv = document.getElementById("status");
 
-// 1. Déclenchement de la capture
 document.getElementById("btn-capture").addEventListener("click", async () => {
-  statusDiv.innerText = "Capture en cours...";
+  statusDiv.innerText = "Analyse du plan en cours...";
   
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   
+  // 1. Capture du canevas
   chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_MAP" }, async (response) => {
     if (!response || !response.image) {
-      statusDiv.innerText = "Erreur : Aucun élément de plan détecté.";
+      statusDiv.innerText = "Erreur : Aucun plan trouvé.";
       return;
     }
 
-    statusDiv.innerText = "Envoi au backend local...";
     try {
+      // 2. Traitement par le serveur IA Python
       const res = await fetch("http://127.0.0.1:8000/api/process-seatmap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image_base64: response.image })
       });
       const data = await res.json();
-      statusDiv.innerText = `Matrice reçue (${data.rows}x${data.cols}). Prête pour Dot Pad.`;
-      console.log("Données normalisées :", data);
+      
+      // 3. Démarrage de la session live sur la page web
+      chrome.tabs.sendMessage(tab.id, { action: "START_LIVE_SESSION", data: data }, (liveRes) => {
+        statusDiv.innerText = "Session Live activée sur la page !";
+      });
+
     } catch (err) {
-      statusDiv.innerText = "Erreur serveur local : " + err.message;
+      statusDiv.innerText = "Erreur backend : " + err.message;
     }
   });
 });
 
-// 2. Gestionnaire WebHID direct
+// Connexion WebHID avec la Dot Pad
 document.getElementById("btn-webhid").addEventListener("click", async () => {
   if (!("hid" in navigator)) {
-    statusDiv.innerText = "WebHID non supporté sur ce navigateur.";
+    statusDiv.innerText = "WebHID non supporté.";
     return;
   }
 
   try {
-    // Ouvre la boîte de dialogue native pour sélectionner la Dot Pad USB
-    const devices = await navigator.hid.requestDevice({
-      filters: [] // Dot Inc. Vendor ID filtrable ici ultérieurement
-    });
-
+    const devices = await navigator.hid.requestDevice({ filters: [] });
     if (devices.length > 0) {
       const device = devices[0];
       await device.open();
-      statusDiv.innerText = `Connecté à : ${device.productName}`;
-      console.log("Dot Pad connectée :", device);
-    } else {
-      statusDiv.innerText = "Aucun appareil sélectionné.";
+      statusDiv.innerText = `Dot Pad connectée : ${device.productName}`;
     }
   } catch (err) {
     statusDiv.innerText = "Erreur WebHID : " + err.message;
