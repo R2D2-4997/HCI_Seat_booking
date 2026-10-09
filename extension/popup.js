@@ -1,29 +1,30 @@
 const statusDiv = document.getElementById("status");
 
 document.getElementById("btn-capture").addEventListener("click", async () => {
-  statusDiv.innerText = "Analyse du plan en cours...";
+  statusDiv.innerText = "Analyse dynamique du plan...";
   
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
-  // 1. Capture du canevas
+  if (!tab) return;
+
   chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_MAP" }, async (response) => {
-    if (!response || !response.image) {
-      statusDiv.innerText = "Erreur : Aucun plan trouvé.";
+    if (chrome.runtime.lastError || !response || response.error || !response.dynamicLayout) {
+      statusDiv.innerText = "Erreur : Aucun siège détecté sur cette vue.";
       return;
     }
 
     try {
-      // 2. Traitement par le serveur IA Python
-      const res = await fetch("http://127.0.0.1:8000/api/process-seatmap", {
+      const res = await fetch("http://127.0.0.1:8000/process-seatmap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_base64: response.image })
+        body: JSON.stringify({
+          dynamic_layout: response.dynamicLayout
+        })
       });
+
       const data = await res.json();
       
-      // 3. Démarrage de la session live sur la page web
-      chrome.tabs.sendMessage(tab.id, { action: "START_LIVE_SESSION", data: data }, (liveRes) => {
-        statusDiv.innerText = "Session Live activée sur la page !";
+      chrome.tabs.sendMessage(tab.id, { action: "START_LIVE_SESSION", data: data }, () => {
+        statusDiv.innerText = "Session Live activée !";
       });
 
     } catch (err) {
@@ -32,7 +33,6 @@ document.getElementById("btn-capture").addEventListener("click", async () => {
   });
 });
 
-// Connexion WebHID avec la Dot Pad
 document.getElementById("btn-webhid").addEventListener("click", async () => {
   if (!("hid" in navigator)) {
     statusDiv.innerText = "WebHID non supporté.";

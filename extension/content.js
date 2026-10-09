@@ -3,10 +3,10 @@ let liveSession = {
   active: false,
   matrix: [],
   seats: {},
-  cursor: { r: 0, c: 1 },
+  seatElements: {}, // Stocke la référence directe aux nœuds DOM des sièges
+  cursor: { r: 0, c: 0 },
   maxRows: 0,
-  maxCols: 0,
-  targetElem: null
+  maxCols: 0
 };
 
 // Synthèse vocale & Audio
@@ -48,85 +48,228 @@ function speak(text) {
   window.speechSynthesis.speak(utterance);
 }
 
-// 1. CRÉATION DE LA COUCHE OVERLAY TRANSPARENTE UNIVERSELLE
+// 1. RECHERCHE DANS LE SHADOW DOM
+function querySelectorAllDeep(selector, root = document) {
+  let results = Array.from(root.querySelectorAll(selector));
+  const allElements = root.querySelectorAll('*');
+  for (const el of allElements) {
+    if (el.shadowRoot) {
+      results = results.concat(querySelectorAllDeep(selector, el.shadowRoot));
+    }
+  }
+  return results;
+}
+
+// 2. EXTRACTION DYNAMIQUE DES SIÈGES DANS LE DOM
+function analyzeSeatmapDOM() {
+  const candidates = querySelectorAllDeep("button, [aria-label], [data-seat], g, rect, div, path");
+  const detectedSeats = [];
+  const seatRegex = /(?:seat|siège|platz|asiento)?\s*(\d{1,2})\s*([A-K])/i;
+
+  candidates.forEach(el => {
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0 || rect.width > 120 || rect.height > 120) return;
+
+    const aria = el.getAttribute("aria-label") || "";
+    const id = el.id || "";
+    const dataSeat = el.getAttribute("data-seat") || el.getAttribute("data-seat-id") || "";
+    const title = el.getAttribute("title") || "";
+    const text = el.textContent ? el.textContent.trim() : "";
+
+    const fullStr = `${aria} ${id} ${dataSeat} ${title} ${text}`;
+    const match = fullStr.match(seatRegex);
+
+    if (match) {
+      const rowNum = parseInt(match[1], 10);
+      const letter = match[2].toUpperCase();
+      const seatId = `${rowNum}${letter}`;
+
+      let status = "available";
+      const lower = fullStr.toLowerCase();
+      if (lower.includes("occupied") || lower.includes("occupé") || lower.includes("unavailable") || el.hasAttribute("disabled")) {
+        status = "occupied";
+      } else if (lower.includes("selected") || lower.includes("sélectionné")) {
+        status = "selected";
+      }
+
+      if (!detectedSeats.some(s => s.id === seatId)) {
+        detectedSeats.push({
+          id: seatId,
+          row: rowNum,
+          letter: letter,
+          status: status,
+          element: el,
+          rect: rect
+        });
+      }
+    }
+  });
+
+  return detectedSeats;
+}
+
+// 3. CONSTRUCTION DU LAYOUT MATRICIEL
+function buildDynamicLayout(seats) {
+  if (!seats || seats.length === 0) return null;
+
+  const rows = [...new Set(seats.map(s => s.row))].sort((a, b) => a - b);
+  const letters = [...new Set(seats.map(s => s.letter))].sort();
+
+  const colStructure = [];
+  for (let i = 0; i < letters.length; i++) {
+    colStructure.push(letters[i]);
+    if (i < letters.length - 1) {
+      const currentCode = letters[i].charCodeAt(0);
+      const nextCode = letters[i + 1].charCodeAt(0);
+      if (nextCode - currentCode > 1) {
+        colStructure.push(""); // Couloir
+      }
+    }
+  }
+
+  const matrix = [];
+  const seatsMetadata = {};
+  const seatElements = {};
+
+  rows.forEach((rNum, rIdx) => {
+    const rowLine = [];
+    colStructure.forEach((lettr, cIdx) => {
+      if (lettr === "") {
+        rowLine.push(0);
+        return;
+      }
+
+      const seatObj = seats.find(s => s.row === rNum && s.letter === lettr);
+      if (seatObj) {
+        const statusCode = seatObj.status === "occupied" ? 2 : 1;
+        rowLine.push(statusCode);
+
+        const key = `${rIdx},${cIdx}`;
+        seatsMetadata[key] = {
+          id: seatObj.id,
+          type: "Standard",
+          price: "Disponible",
+          status: seatObj.status
+        };
+        seatElements[key] = seatObj.element;
+      } else {
+        rowLine.push(0);
+      }
+    });
+    matrix.push(rowLine);
+  });
+
+  return {
+    rows: rows.length,
+    cols: colStructure.length,
+    matrix: matrix,
+    seatsMetadata: seatsMetadata,
+    seatElements: seatElements
+  };
+}
+
+// 4. OVERLAY EN OVERLAY SUR LA PAGE
 let overlayCanvas = null;
 
-function getOrCreateOverlay(targetElem) {
+function getOrCreateOverlay() {
   if (!overlayCanvas) {
     overlayCanvas = document.createElement("canvas");
     overlayCanvas.id = "tactile-seat-overlay";
     overlayCanvas.style.position = "absolute";
-    overlayCanvas.style.pointerEvents = "none"; // Ne bloque pas les clics sur la page
+    overlayCanvas.style.top = "0";
+    overlayCanvas.style.left = "0";
+    overlayCanvas.style.pointerEvents = "none";
     overlayCanvas.style.zIndex = "999999";
     document.body.appendChild(overlayCanvas);
   }
 
-  const rect = targetElem.getBoundingClientRect();
-  overlayCanvas.style.top = `${rect.top + window.scrollY}px`;
-  overlayCanvas.style.left = `${rect.left + window.scrollX}px`;
-  overlayCanvas.style.width = `${rect.width}px`;
-  overlayCanvas.style.height = `${rect.height}px`;
-  overlayCanvas.width = rect.width;
-  overlayCanvas.height = rect.height;
+  const w = Math.max(document.documentElement.scrollWidth, window.innerWidth);
+  const h = Math.max(document.documentElement.scrollHeight, window.innerHeight);
+  overlayCanvas.width = w;
+  overlayCanvas.height = h;
+  overlayCanvas.style.width = `${w}px`;
+  overlayCanvas.style.height = `${h}px`;
 
   return overlayCanvas;
 }
 
-// 2. DESSIN DU CURSEUR UNIVERSEL
 function drawOverlayCursor() {
-  if (!liveSession.targetElem) return;
-
-  const overlay = getOrCreateOverlay(liveSession.targetElem);
+  const overlay = getOrCreateOverlay();
   const ctx = overlay.getContext("2d");
   ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-  // Calcul dynamique des ratios selon la taille du composant détecté
-  const cellWidth = overlay.width / liveSession.maxCols;
-  const cellHeight = overlay.height / liveSession.maxRows;
+  if (!liveSession.active) return;
 
+  // A. Dessiner un rectangle bleu discret sur TOUS les sièges détectés
+  Object.keys(liveSession.seatElements).forEach(key => {
+    const el = liveSession.seatElements[key];
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const x = rect.left + window.scrollX;
+        const y = rect.top + window.scrollY;
+        ctx.strokeStyle = "rgba(0, 102, 204, 0.4)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, rect.width, rect.height);
+      }
+    }
+  });
+
+  // B. Dessiner le curseur actif (rouge vif)
   const { r, c } = liveSession.cursor;
-  const x = c * cellWidth;
-  const y = r * cellHeight;
+  const key = `${r},${c}`;
+  const targetEl = liveSession.seatElements[key];
 
-  // Contour du curseur tactile actif
-  ctx.strokeStyle = "#e53e3e";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(x + 2, y + 2, cellWidth - 4, cellHeight - 4);
-}
+  if (targetEl) {
+    const rect = targetEl.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      const x = rect.left + window.scrollX;
+      const y = rect.top + window.scrollY;
 
-// 3. SIMULATION DE CLIC UNIVERSEL (PAR COORDONNÉES PIXELS OU SELECTEUR)
-function triggerUniversalClick(r, c, seatInfo) {
-  // Option A : Sélecteur DOM classique s'il existe
-  if (seatInfo && seatInfo.id) {
-    const selectorBtn = document.querySelector(`#seat-${seatInfo.id}`);
-    if (selectorBtn) {
-      selectorBtn.click();
-      return;
-    }
-  }
+      // Remplissage semi-transparent
+      ctx.fillStyle = "rgba(229, 62, 62, 0.25)";
+      ctx.fillRect(x, y, rect.width, rect.height);
 
-  // Option B : Clic universel basé sur les coordonnées à l'écran
-  if (liveSession.targetElem) {
-    const rect = liveSession.targetElem.getBoundingClientRect();
-    const cellWidth = rect.width / liveSession.maxCols;
-    const cellHeight = rect.height / liveSession.maxRows;
-
-    const clickX = rect.left + (c + 0.5) * cellWidth;
-    const clickY = rect.top + (r + 0.5) * cellHeight;
-
-    const targetElement = document.elementFromPoint(clickX, clickY);
-    if (targetElement) {
-      targetElement.dispatchEvent(new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        clientX: clickX,
-        clientY: clickY
-      }));
+      // Contour épais
+      ctx.strokeStyle = "#e53e3e";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x - 2, y - 2, rect.width + 4, rect.height + 4);
     }
   }
 }
 
-// Mise à jour de la position courante
+// Ré-alignement sur défilement et redimensionnement
+window.addEventListener("scroll", () => { if (liveSession.active) drawOverlayCursor(); }, true);
+window.addEventListener("resize", () => { if (liveSession.active) drawOverlayCursor(); });
+
+// 5. ACTION DE CLIC DIRECT SUR LE DOM
+function triggerDirectClick(r, c) {
+  const key = `${r},${c}`;
+  const targetEl = liveSession.seatElements[key];
+
+  if (targetEl) {
+    const rect = targetEl.getBoundingClientRect();
+    const eventOptions = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+      view: window
+    };
+
+    targetEl.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
+    targetEl.dispatchEvent(new MouseEvent("mousedown", eventOptions));
+    targetEl.dispatchEvent(new PointerEvent("pointerup", eventOptions));
+    targetEl.dispatchEvent(new MouseEvent("mouseup", eventOptions));
+    if (typeof targetEl.click === "function") {
+      targetEl.click();
+    } else {
+      targetEl.dispatchEvent(new MouseEvent("click", eventOptions));
+    }
+  }
+}
+
 function renderCurrentPosition() {
   const { r, c } = liveSession.cursor;
   const cellValue = liveSession.matrix[r]?.[c];
@@ -140,14 +283,11 @@ function renderCurrentPosition() {
       speak(`Siège ${seatInfo.id}, occupé.`);
     } else {
       playTone(523, "sine", 0.08);
-      speak(`Siège ${seatInfo.id}, ${seatInfo.price}`);
+      speak(`Siège ${seatInfo.id}`);
     }
   } else if (cellValue === 0) {
     playTone(220, "triangle", 0.05);
     speak("Couloir");
-  } else {
-    playTone(330, "sine", 0.05);
-    speak(`Rangée ${r + 1}, colonne ${c + 1}`);
   }
 }
 
@@ -155,193 +295,88 @@ function renderCurrentPosition() {
 window.addEventListener("keydown", (e) => {
   if (!liveSession.active) return;
 
+  const key = e.code;
+  if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Space"].includes(key)) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
   const { r, c } = liveSession.cursor;
   let moved = false;
 
-  if (e.code === "ArrowRight" && c < liveSession.maxCols - 1) {
+  if (key === "ArrowRight" && c < liveSession.maxCols - 1) {
     liveSession.cursor.c++;
     moved = true;
-  } else if (e.code === "ArrowLeft" && c > 0) {
+  } else if (key === "ArrowLeft" && c > 0) {
     liveSession.cursor.c--;
     moved = true;
-  } else if (e.code === "ArrowDown" && r < liveSession.maxRows - 1) {
+  } else if (key === "ArrowDown" && r < liveSession.maxRows - 1) {
     liveSession.cursor.r++;
     moved = true;
-  } else if (e.code === "ArrowUp" && r > 0) {
+  } else if (key === "ArrowUp" && r > 0) {
     liveSession.cursor.r--;
     moved = true;
-  } else if (e.code === "Enter") {
-    e.preventDefault();
+  } else if (key === "Enter" || key === "Space") {
     const cellValue = liveSession.matrix[r]?.[c];
     const seatInfo = liveSession.seats[`${r},${c}`];
 
     if (cellValue === 0) {
       playTone(180, "sawtooth", 0.2);
-      speak("Réservation impossible : vous êtes dans le couloir.");
+      speak("Couloir");
     } else if (cellValue === 2) {
       playTone(180, "sawtooth", 0.25);
-      speak("Réservation refusée : siège occupé.");
+      speak("Siège occupé");
     } else {
       playTone(880, "triangle", 0.3);
-      const label = seatInfo ? seatInfo.id : `${r + 1}-${c + 1}`;
-      speak(`Réservation du siège ${label} !`);
-
-      // Marque le siège comme occupé et déclenche le clic universel
+      speak(`Réservation du siège ${seatInfo ? seatInfo.id : ''}`);
       liveSession.matrix[r][c] = 2;
-      triggerUniversalClick(r, c, seatInfo);
+      triggerDirectClick(r, c);
       renderCurrentPosition();
     }
     return;
   }
 
-  if (moved) {
-    e.preventDefault();
-    renderCurrentPosition();
-  }
-});
+  if (moved) renderCurrentPosition();
+}, true);
 
-// Détection du composant de plan de sièges avec filtrage par dimension
-function findSeatmapElement() {
-  const selectors = [
-    "bw-seatmap-svg-deck svg",
-    ".bwa-seatmap-page__seatmap svg",
-    "bw-seatmap-layout svg",
-    "[class*='seatmap'] svg",
-    "[class*='seat-map'] svg",
-    "[class*='cabin'] svg",
-    "canvas",
-    "svg"
-  ];
-
-  for (const selector of selectors) {
-    const candidates = document.querySelectorAll(selector);
-    for (const el of candidates) {
-      const rect = el.getBoundingClientRect();
-      // On s'assure d'ignorer les petites icônes de navigation (ex: loupe de 24x24px)
-      if (rect.width > 150 && rect.height > 150) {
-        return el;
-      }
-    }
-  }
-  return null;
-}
-
-// Extraction et sérialisation complète du SVG avec inclusion des symboles/defs globaux
-function getStandaloneSvgData(svgElem) {
-  const clone = svgElem.cloneNode(true);
-
-  if (!clone.getAttribute("xmlns")) {
-    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  }
-
-  // Récupération des symboles référencés par <use href="#..."> situés hors de cet SVG
-  const useElems = clone.querySelectorAll("use");
-  const missingDefs = new Set();
-
-  useElems.forEach(use => {
-    const href = use.getAttribute("href") || use.getAttribute("xlink:href");
-    if (href && href.startsWith("#")) {
-      const id = href.substring(1);
-      if (!clone.querySelector(`#${CSS.escape(id)}`)) {
-        const globalDef = document.getElementById(id);
-        if (globalDef) {
-          missingDefs.add(globalDef.cloneNode(true));
-        }
-      }
-    }
-  });
-
-  if (missingDefs.size > 0) {
-    let defs = clone.querySelector("defs");
-    if (!defs) {
-      defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-      clone.insertBefore(defs, clone.firstChild);
-    }
-    missingDefs.forEach(defNode => defs.appendChild(defNode));
-  }
-
-  return new XMLSerializer().serializeToString(clone);
-}
-
-// Écoute des commandes de l'extension
+// Écouteur de messages Extension
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "CAPTURE_MAP") {
-    const target = findSeatmapElement();
+    const rawSeats = analyzeSeatmapDOM();
+    const layout = buildDynamicLayout(rawSeats);
 
-    if (!target) {
-      sendResponse({ error: "NO_ELEMENT_FOUND" });
+    if (!layout || layout.rows === 0) {
+      sendResponse({ error: "NO_SEATS_FOUND" });
       return true;
     }
 
-    liveSession.targetElem = target;
+    // Sauvegarde essentielle des références DOM
+    liveSession.seatElements = layout.seatElements;
 
-    // cas A : Canvas
-    if (target.tagName === "CANVAS") {
-      sendResponse({ image: target.toDataURL("image/png") });
-      return true;
-    }
-
-    // cas B : Image standard
-    if (target.tagName === "IMG") {
-      sendResponse({ image: target.src });
-      return true;
-    }
-
-    // cas C : SVG (Air France, etc.)
-    const svgElem = target.tagName === "SVG" ? target : target.querySelector("svg");
-
-    if (svgElem) {
-      try {
-        const svgData = getStandaloneSvgData(svgElem);
-        const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-        const url = URL.createObjectURL(svgBlob);
-
-        const img = new Image();
-        img.onload = () => {
-          const tempCanvas = document.createElement("canvas");
-          const rect = svgElem.getBoundingClientRect();
-
-          const svgWidth = parseFloat(svgElem.getAttribute("width")) || rect.width || 600;
-          const svgHeight = parseFloat(svgElem.getAttribute("height")) || rect.height || 800;
-
-          tempCanvas.width = svgWidth;
-          tempCanvas.height = svgHeight;
-
-          const ctx = tempCanvas.getContext("2d");
-          ctx.fillStyle = "#FFFFFF";
-          ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-          ctx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
-
-          URL.revokeObjectURL(url);
-          sendResponse({ image: tempCanvas.toDataURL("image/png") });
-        };
-
-        img.onerror = () => {
-          URL.revokeObjectURL(url);
-          sendResponse({ error: "SVG_RENDER_FAILED" });
-        };
-
-        img.src = url;
-      } catch (err) {
-        sendResponse({ error: "SVG_CONVERSION_FAILED" });
+    sendResponse({
+      dynamicLayout: {
+        rows: layout.rows,
+        cols: layout.cols,
+        matrix: layout.matrix,
+        seatsMetadata: layout.seatsMetadata
       }
-    } else {
-      sendResponse({ error: "NO_CAPTURABLE_FORMAT" });
-    }
+    });
+    return true;
   }
 
   if (request.action === "START_LIVE_SESSION") {
     liveSession.matrix = request.data.matrix;
-    liveSession.seats = request.data.seats;
+    liveSession.seats = request.data.seats_metadata || request.data.seats;
     liveSession.maxRows = request.data.rows;
     liveSession.maxCols = request.data.cols;
-    liveSession.cursor = { r: 0, c: 1 };
+    liveSession.cursor = { r: 0, c: 0 };
     liveSession.active = true;
 
+    window.focus();
     renderCurrentPosition();
-    speak("Session tactile activée sur la page Air France.");
+    speak("Session tactile activée.");
     sendResponse({ status: "LIVE_STARTED" });
   }
 
-  return true; // Canal asynchrone maintenu
+  return true;
 });
