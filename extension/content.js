@@ -3,13 +3,13 @@ let liveSession = {
   active: false,
   matrix: [],
   seats: {},
-  seatElements: {}, // Stocke la référence directe aux nœuds DOM des sièges
+  seatElements: {},
   cursor: { r: 0, c: 0 },
   maxRows: 0,
   maxCols: 0
 };
 
-// Synthèse vocale & Audio
+// Audio & Synthèse vocale
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 let frenchVoice = null;
 
@@ -75,6 +75,7 @@ function analyzeSeatmapDOM() {
     const dataSeat = el.getAttribute("data-seat") || el.getAttribute("data-seat-id") || "";
     const title = el.getAttribute("title") || "";
     const text = el.textContent ? el.textContent.trim() : "";
+    const classStr = (el.className || "").toString().toLowerCase();
 
     const fullStr = `${aria} ${id} ${dataSeat} ${title} ${text}`;
     const match = fullStr.match(seatRegex);
@@ -86,9 +87,18 @@ function analyzeSeatmapDOM() {
 
       let status = "available";
       const lower = fullStr.toLowerCase();
-      if (lower.includes("occupied") || lower.includes("occupé") || lower.includes("unavailable") || el.hasAttribute("disabled")) {
+
+      if (
+        el.hasAttribute("disabled") ||
+        el.getAttribute("aria-disabled") === "true" ||
+        lower.includes("occupied") || lower.includes("occupé") ||
+        lower.includes("unavailable") || lower.includes("indisponible") ||
+        lower.includes("blocked") || lower.includes("bloqué") ||
+        classStr.includes("disabled") || classStr.includes("occupied") ||
+        classStr.includes("unavailable")
+      ) {
         status = "occupied";
-      } else if (lower.includes("selected") || lower.includes("sélectionné")) {
+      } else if (lower.includes("selected") || lower.includes("sélectionné") || classStr.includes("selected")) {
         status = "selected";
       }
 
@@ -108,11 +118,20 @@ function analyzeSeatmapDOM() {
   return detectedSeats;
 }
 
-// 3. CONSTRUCTION DU LAYOUT MATRICIEL
+// 3. RECONSTRUCTION MATRICIELLE AVEC RANGÉES CONSÉCUTIVES (Inclus rangées entièrement grisées)
 function buildDynamicLayout(seats) {
   if (!seats || seats.length === 0) return null;
 
-  const rows = [...new Set(seats.map(s => s.row))].sort((a, b) => a - b);
+  const detectedRows = seats.map(s => s.row);
+  const minRow = Math.min(...detectedRows);
+  const maxRow = Math.max(...detectedRows);
+
+  // Génération de TOUTES les rangées consécutives de minRow à maxRow
+  const rows = [];
+  for (let r = minRow; r <= maxRow; r++) {
+    rows.push(r);
+  }
+
   const letters = [...new Set(seats.map(s => s.letter))].sort();
 
   const colStructure = [];
@@ -134,8 +153,10 @@ function buildDynamicLayout(seats) {
   rows.forEach((rNum, rIdx) => {
     const rowLine = [];
     colStructure.forEach((lettr, cIdx) => {
+      const key = `${rIdx},${cIdx}`;
+
       if (lettr === "") {
-        rowLine.push(0);
+        rowLine.push(0); // Couloir
         return;
       }
 
@@ -144,16 +165,22 @@ function buildDynamicLayout(seats) {
         const statusCode = seatObj.status === "occupied" ? 2 : 1;
         rowLine.push(statusCode);
 
-        const key = `${rIdx},${cIdx}`;
         seatsMetadata[key] = {
           id: seatObj.id,
           type: "Standard",
-          price: "Disponible",
+          price: seatObj.status === "occupied" ? "Indisponible" : "Disponible",
           status: seatObj.status
         };
         seatElements[key] = seatObj.element;
       } else {
-        rowLine.push(0);
+        // Rangée ou siège complètement grisé dans le DOM
+        rowLine.push(2); // Marqué comme occupé / indisponible
+        seatsMetadata[key] = {
+          id: `${rNum}${lettr}`,
+          type: "Indisponible",
+          price: "Indisponible",
+          status: "occupied"
+        };
       }
     });
     matrix.push(rowLine);
@@ -168,7 +195,7 @@ function buildDynamicLayout(seats) {
   };
 }
 
-// 4. OVERLAY EN OVERLAY SUR LA PAGE
+// 4. OVERLAY ET RENDU SUR LES SIÈGES GRISÉS
 let overlayCanvas = null;
 
 function getOrCreateOverlay() {
@@ -200,22 +227,31 @@ function drawOverlayCursor() {
 
   if (!liveSession.active) return;
 
-  // A. Dessiner un rectangle bleu discret sur TOUS les sièges détectés
-  Object.keys(liveSession.seatElements).forEach(key => {
+  // A. Dessiner TOUS les sièges (Libres en bleu, Indisponibles/Grisés en gris)
+  Object.keys(liveSession.seats).forEach(key => {
     const el = liveSession.seatElements[key];
+    const info = liveSession.seats[key];
+
     if (el) {
       const rect = el.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         const x = rect.left + window.scrollX;
         const y = rect.top + window.scrollY;
-        ctx.strokeStyle = "rgba(0, 102, 204, 0.4)";
-        ctx.lineWidth = 1;
+
+        if (info && info.status === "occupied") {
+          ctx.fillStyle = "rgba(128, 128, 128, 0.35)";
+          ctx.fillRect(x, y, rect.width, rect.height);
+          ctx.strokeStyle = "rgba(80, 80, 80, 0.8)";
+        } else {
+          ctx.strokeStyle = "rgba(0, 102, 204, 0.6)";
+        }
+        ctx.lineWidth = 1.5;
         ctx.strokeRect(x, y, rect.width, rect.height);
       }
     }
   });
 
-  // B. Dessiner le curseur actif (rouge vif)
+  // B. Curseur actif en rouge
   const { r, c } = liveSession.cursor;
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
@@ -226,23 +262,20 @@ function drawOverlayCursor() {
       const x = rect.left + window.scrollX;
       const y = rect.top + window.scrollY;
 
-      // Remplissage semi-transparent
-      ctx.fillStyle = "rgba(229, 62, 62, 0.25)";
+      ctx.fillStyle = "rgba(229, 62, 62, 0.35)";
       ctx.fillRect(x, y, rect.width, rect.height);
 
-      // Contour épais
       ctx.strokeStyle = "#e53e3e";
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 3.5;
       ctx.strokeRect(x - 2, y - 2, rect.width + 4, rect.height + 4);
     }
   }
 }
 
-// Ré-alignement sur défilement et redimensionnement
 window.addEventListener("scroll", () => { if (liveSession.active) drawOverlayCursor(); }, true);
 window.addEventListener("resize", () => { if (liveSession.active) drawOverlayCursor(); });
 
-// 5. ACTION DE CLIC DIRECT SUR LE DOM
+// 5. ACTION DE CLIC ET BOUTON DE PAIEMENT
 function triggerDirectClick(r, c) {
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
@@ -270,6 +303,33 @@ function triggerDirectClick(r, c) {
   }
 }
 
+function findPaymentButton() {
+  const candidates = querySelectorAllDeep("button, a, input[type='button'], input[type='submit']");
+  for (const btn of candidates) {
+    const text = (btn.textContent || btn.value || "").toLowerCase();
+    if (
+      text.includes("continue") || text.includes("suivant") ||
+      text.includes("pay") || text.includes("paiment") || text.includes("paiement") ||
+      text.includes("confirm") || text.includes("next leg")
+    ) {
+      return btn;
+    }
+  }
+  return null;
+}
+
+function proceedToPayment() {
+  const payBtn = findPaymentButton();
+  if (payBtn) {
+    playTone(1000, "sine", 0.4);
+    speak("Redirection vers la séquence de paiement.");
+    payBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => { payBtn.click(); }, 1000);
+  } else {
+    speak("Bouton de paiement non trouvé sur cette vue.");
+  }
+}
+
 function renderCurrentPosition() {
   const { r, c } = liveSession.cursor;
   const cellValue = liveSession.matrix[r]?.[c];
@@ -277,46 +337,125 @@ function renderCurrentPosition() {
 
   drawOverlayCursor();
 
-  if (seatInfo) {
-    if (cellValue === 2 || seatInfo.status === "occupied") {
-      playTone(300, "triangle", 0.05);
-      speak(`Siège ${seatInfo.id}, occupé.`);
-    } else {
-      playTone(523, "sine", 0.08);
-      speak(`Siège ${seatInfo.id}`);
-    }
-  } else if (cellValue === 0) {
+  if (cellValue === 0) {
     playTone(220, "triangle", 0.05);
     speak("Couloir");
+  } else if (cellValue === 2 || (seatInfo && seatInfo.status === "occupied")) {
+    playTone(300, "triangle", 0.05);
+    speak(`Siège ${seatInfo ? seatInfo.id : ''}, indisponible`);
+  } else if (seatInfo) {
+    playTone(523, "sine", 0.08);
+    speak(`Siège ${seatInfo.id}`);
   }
 }
 
-// Navigation Clavier
+// 6. DÉCLENCHEMENT AUTOMATIQUE VIA RACCOURCI
+async function startAutoCapture() {
+  speak("Analyse du plan en cours...");
+  const rawSeats = analyzeSeatmapDOM();
+  const layout = buildDynamicLayout(rawSeats);
+
+  if (!layout || layout.rows === 0) {
+    speak("Aucun plan de siège détecté.");
+    return;
+  }
+
+  liveSession.seatElements = layout.seatElements;
+
+  try {
+    const res = await fetch("http://127.0.0.1:8000/process-seatmap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dynamic_layout: {
+          rows: layout.rows,
+          cols: layout.cols,
+          matrix: layout.matrix,
+          seatsMetadata: layout.seatsMetadata
+        }
+      })
+    });
+    const data = await res.json();
+
+    liveSession.matrix = data.matrix;
+    liveSession.seats = data.seats_metadata || data.seats;
+    liveSession.maxRows = data.rows;
+    liveSession.maxCols = data.cols;
+    liveSession.cursor = { r: 0, c: 0 };
+    liveSession.active = true;
+
+    window.focus();
+    renderCurrentPosition();
+    speak("Session tactile activée.");
+  } catch (err) {
+    speak("Erreur de connexion au serveur Python.");
+  }
+}
+
+// 7. ÉCOUTEUR CLAVIER ET BOUTON DOT PAD
 window.addEventListener("keydown", (e) => {
+  // Raccourci de lancement rapide : Alt + S
+  if (e.altKey && (e.code === "KeyS" || e.key === "s" || e.key === "S")) {
+    e.preventDefault();
+    startAutoCapture();
+    return;
+  }
+
   if (!liveSession.active) return;
 
   const key = e.code;
+
+  if (key === "KeyP") {
+    e.preventDefault();
+    proceedToPayment();
+    return;
+  }
+
   if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Space"].includes(key)) return;
 
   e.preventDefault();
   e.stopPropagation();
 
-  const { r, c } = liveSession.cursor;
+  let { r, c } = liveSession.cursor;
   let moved = false;
 
-  if (key === "ArrowRight" && c < liveSession.maxCols - 1) {
-    liveSession.cursor.c++;
-    moved = true;
-  } else if (key === "ArrowLeft" && c > 0) {
-    liveSession.cursor.c--;
-    moved = true;
-  } else if (key === "ArrowDown" && r < liveSession.maxRows - 1) {
-    liveSession.cursor.r++;
-    moved = true;
-  } else if (key === "ArrowUp" && r > 0) {
-    liveSession.cursor.r--;
-    moved = true;
-  } else if (key === "Enter" || key === "Space") {
+  // Mode saut rapide aux sièges libres avec Shift + Flèches
+  if (e.shiftKey) {
+    if (key === "ArrowRight") {
+      for (let nextC = c + 1; nextC < liveSession.maxCols; nextC++) {
+        if (liveSession.matrix[r]?.[nextC] === 1) { liveSession.cursor.c = nextC; moved = true; break; }
+      }
+    } else if (key === "ArrowLeft") {
+      for (let nextC = c - 1; nextC >= 0; nextC--) {
+        if (liveSession.matrix[r]?.[nextC] === 1) { liveSession.cursor.c = nextC; moved = true; break; }
+      }
+    } else if (key === "ArrowDown") {
+      for (let nextR = r + 1; nextR < liveSession.maxRows; nextR++) {
+        if (liveSession.matrix[nextR]?.[c] === 1) { liveSession.cursor.r = nextR; moved = true; break; }
+      }
+    } else if (key === "ArrowUp") {
+      for (let nextR = r - 1; nextR >= 0; nextR--) {
+        if (liveSession.matrix[nextR]?.[c] === 1) { liveSession.cursor.r = nextR; moved = true; break; }
+      }
+    }
+  } else {
+    // Navigation pas-à-pas standard
+    if (key === "ArrowRight" && c < liveSession.maxCols - 1) {
+      liveSession.cursor.c++;
+      moved = true;
+    } else if (key === "ArrowLeft" && c > 0) {
+      liveSession.cursor.c--;
+      moved = true;
+    } else if (key === "ArrowDown" && r < liveSession.maxRows - 1) {
+      liveSession.cursor.r++;
+      moved = true;
+    } else if (key === "ArrowUp" && r > 0) {
+      liveSession.cursor.r--;
+      moved = true;
+    }
+  }
+
+  if (key === "Enter" || key === "Space") {
     const cellValue = liveSession.matrix[r]?.[c];
     const seatInfo = liveSession.seats[`${r},${c}`];
 
@@ -325,10 +464,11 @@ window.addEventListener("keydown", (e) => {
       speak("Couloir");
     } else if (cellValue === 2) {
       playTone(180, "sawtooth", 0.25);
-      speak("Siège occupé");
+      speak("Siège indisponible");
     } else {
       playTone(880, "triangle", 0.3);
-      speak(`Réservation du siège ${seatInfo ? seatInfo.id : ''}`);
+      speak(`Siège ${seatInfo ? seatInfo.id : ''} sélectionné. Appuyez sur P pour passer au paiement.`);
+
       liveSession.matrix[r][c] = 2;
       triggerDirectClick(r, c);
       renderCurrentPosition();
@@ -339,28 +479,11 @@ window.addEventListener("keydown", (e) => {
   if (moved) renderCurrentPosition();
 }, true);
 
-// Écouteur de messages Extension
+// Communication Extension
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "CAPTURE_MAP") {
-    const rawSeats = analyzeSeatmapDOM();
-    const layout = buildDynamicLayout(rawSeats);
-
-    if (!layout || layout.rows === 0) {
-      sendResponse({ error: "NO_SEATS_FOUND" });
-      return true;
-    }
-
-    // Sauvegarde essentielle des références DOM
-    liveSession.seatElements = layout.seatElements;
-
-    sendResponse({
-      dynamicLayout: {
-        rows: layout.rows,
-        cols: layout.cols,
-        matrix: layout.matrix,
-        seatsMetadata: layout.seatsMetadata
-      }
-    });
+    startAutoCapture();
+    sendResponse({ status: "STARTED" });
     return true;
   }
 
