@@ -21,9 +21,7 @@ document.getElementById("btn-capture").addEventListener("click", async () => {
       const res = await fetch("http://127.0.0.1:8000/process-seatmap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dynamic_layout: response.dynamicLayout
-        })
+        body: JSON.stringify({ dynamic_layout: response.dynamicLayout })
       });
 
       const data = await res.json();
@@ -50,6 +48,11 @@ document.getElementById("btn-webhid").addEventListener("click", async () => {
       const device = devices[0];
       await device.open();
       statusDiv.innerText = `Dot Pad connectée : ${device.productName}`;
+
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab) {
+        chrome.tabs.sendMessage(tab.id, { action: "WEBHID_CONNECTED" });
+      }
     }
   } catch (err) {
     statusDiv.innerText = "Erreur WebHID : " + err.message;

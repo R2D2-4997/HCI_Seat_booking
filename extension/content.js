@@ -10,6 +10,9 @@ let liveSession = {
   maxCols: 0
 };
 
+// Référence de l'appareil Dot Pad (WebHID)
+let dotPadDevice = null;
+
 // Audio & Synthèse vocale
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 let frenchVoice = null;
@@ -49,7 +52,55 @@ function speak(text) {
   window.speechSynthesis.speak(utterance);
 }
 
-// 1. RECHERCHE SHADOW DOM
+// 1. MISE À JOUR HAPTIQUE DOT PAD (WebHID)
+async function updateDotPadDisplay() {
+  if (!dotPadDevice) {
+    try {
+      if ('hid' in navigator) {
+        const devices = await navigator.hid.getDevices();
+        if (devices.length > 0) {
+          dotPadDevice = devices[0];
+          if (!dotPadDevice.opened) await dotPadDevice.open();
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (!dotPadDevice || !dotPadDevice.opened || !liveSession.active) return;
+
+  const DOTPAD_COLS = 30;
+  const DOTPAD_ROWS = 10;
+  const displayBuffer = new Uint8Array(DOTPAD_COLS * DOTPAD_ROWS);
+
+  const { r: cursorR, c: cursorC } = liveSession.cursor;
+
+  for (let r = 0; r < liveSession.maxRows; r++) {
+    for (let c = 0; c < liveSession.maxCols; c++) {
+      if (r >= DOTPAD_ROWS || c >= DOTPAD_COLS) continue;
+
+      const cellValue = liveSession.matrix[r]?.[c];
+      const dotIndex = r * DOTPAD_COLS + c;
+
+      // 1 = Siège libre (0xFF / picot levé), 0 ou 2 = Couloir / Siège indisponible (0x00 / picot baissé)
+      let pinState = (cellValue === 1) ? 0xFF : 0x00;
+
+      // Surbrillance du curseur actif
+      if (r === cursorR && c === cursorC) {
+        pinState = 0xFF;
+      }
+
+      displayBuffer[dotIndex] = pinState;
+    }
+  }
+
+  try {
+    await dotPadDevice.sendReport(0x00, displayBuffer);
+  } catch (err) {
+    console.error("Erreur d'envoi vers le Dot Pad :", err);
+  }
+}
+
+// 2. RECHERCHE SHADOW DOM
 function querySelectorAllDeep(selector, root = document) {
   let results = Array.from(root.querySelectorAll(selector));
   const allElements = root.querySelectorAll('*');
@@ -61,7 +112,7 @@ function querySelectorAllDeep(selector, root = document) {
   return results;
 }
 
-// 2. AUTO-SCROLL (Défilement automatique quand le siège sort de l'écran)
+// 3. AUTO-SCROLL (Défilement automatique quand le siège sort de l'écran)
 function autoScrollToCursor(r, c) {
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
@@ -69,8 +120,8 @@ function autoScrollToCursor(r, c) {
   if (targetEl && targetEl !== document.body && typeof targetEl.getBoundingClientRect === "function") {
     const rect = targetEl.getBoundingClientRect();
     const isVisible = (
-      rect.top >= 50 &&
-      rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) - 50
+      rect.top >= 60 &&
+      rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) - 60
     );
 
     if (!isVisible) {
@@ -90,7 +141,7 @@ function autoScrollToCursor(r, c) {
   }
 }
 
-// 3. EXTRACTION DES SIÈGES DU DOM & CANVAS
+// 4. EXTRACTION DYNAMIQUE DES SIÈGES DU DOM & CANVAS
 function analyzeSeatmapDOM() {
   const candidates = querySelectorAllDeep("button, [aria-label], [data-seat], g, rect, div, path, text");
   const detectedSeats = [];
@@ -141,7 +192,6 @@ function analyzeSeatmapDOM() {
     }
   });
 
-  // Détection complémentaire si la page utilise un <canvas> (comme sitedemo.html)
   const canvas = querySelectorAllDeep("canvas")[0];
   if (canvas) {
     liveSession.canvasElem = canvas;
@@ -150,14 +200,10 @@ function analyzeSeatmapDOM() {
   return detectedSeats;
 }
 
-// 4. CONSTRUCTION MATRICIELLE
+// 5. RECONSTRUCTION MATRICIELLE
 function buildDynamicLayout(seats) {
-  // Support Canvas / Démo si aucun élément DOM individuel n'est trouvé
   if ((!seats || seats.length === 0) && liveSession.canvasElem) {
     const canvas = liveSession.canvasElem;
-    const rect = canvas.getBoundingClientRect();
-    
-    // Démo A321neo / Canvas : 5 rangées x 7 colonnes (A, B, C | Couloir | D, E, F)
     const rows = 5;
     const cols = 7;
     const colLetters = ["A", "B", "C", "", "D", "E", "F"];
@@ -170,19 +216,23 @@ function buildDynamicLayout(seats) {
       for (let c = 0; c < cols; c++) {
         const key = `${r},${c}`;
         if (c === 3 || colLetters[c] === "") {
-          rowLine.push(0); // Couloir
+          rowLine.push(0);
           continue;
         }
 
         const seatId = `${r + 1}${colLetters[c]}`;
-        const targetBtn = document.querySelector(`#seat-${seatId}`) || canvas;
+        const targetBtn = document.querySelector(`[data-seat="${seatId}"]`) ||
+                            document.querySelector(`#seat-${seatId}`) || canvas;
 
-        rowLine.push(1); // Disponible
+        const isOccupied = targetBtn.hasAttribute("disabled") || targetBtn.getAttribute("data-status") === "occupied";
+        const statusCode = isOccupied ? 2 : 1;
+
+        rowLine.push(statusCode);
         seatsMetadata[key] = {
           id: seatId,
           type: "Standard",
-          price: "Disponible",
-          status: "available"
+          price: isOccupied ? "Indisponible" : "Disponible",
+          status: isOccupied ? "occupied" : "available"
         };
         seatElements[key] = targetBtn;
       }
@@ -269,7 +319,7 @@ function buildDynamicLayout(seats) {
   };
 }
 
-// 5. OVERLAY CANVAS & CURSEUR VISUEL
+// 6. OVERLAY CANVAS & CURSEUR VISUEL
 let overlayCanvas = null;
 
 function getOrCreateOverlay() {
@@ -301,31 +351,11 @@ function drawOverlayCursor() {
 
   if (!liveSession.active) return;
 
-  // Calcul pour plan Canvas (Démo)
-  if (liveSession.canvasElem) {
-    const rect = liveSession.canvasElem.getBoundingClientRect();
-    const cellWidth = rect.width / liveSession.maxCols;
-    const cellHeight = rect.height / liveSession.maxRows;
-
-    const { r, c } = liveSession.cursor;
-    const x = rect.left + window.scrollX + c * cellWidth;
-    const y = rect.top + window.scrollY + r * cellHeight;
-
-    ctx.fillStyle = "rgba(229, 62, 62, 0.3)";
-    ctx.fillRect(x + 2, y + 2, cellWidth - 4, cellHeight - 4);
-
-    ctx.strokeStyle = "#e53e3e";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x, y, cellWidth, cellHeight);
-    return;
-  }
-
-  // Calcul pour plan basé sur le DOM (Air France / Autres)
   Object.keys(liveSession.seats).forEach(key => {
     const el = liveSession.seatElements[key];
     const info = liveSession.seats[key];
 
-    if (el && el !== document.body) {
+    if (el && el !== document.body && el !== liveSession.canvasElem) {
       const rect = el.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         const x = rect.left + window.scrollX;
@@ -348,7 +378,7 @@ function drawOverlayCursor() {
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
 
-  if (targetEl && targetEl !== document.body) {
+  if (targetEl && targetEl !== document.body && targetEl !== liveSession.canvasElem) {
     const rect = targetEl.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       const x = rect.left + window.scrollX;
@@ -367,15 +397,15 @@ function drawOverlayCursor() {
 window.addEventListener("scroll", () => { if (liveSession.active) drawOverlayCursor(); }, true);
 window.addEventListener("resize", () => { if (liveSession.active) drawOverlayCursor(); });
 
-// 6. CLIC DIRECT (DOM & CANVAS)
+// 7. CLIC DIRECT
 function triggerDirectClick(r, c) {
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
   const seatInfo = liveSession.seats[key];
 
-  // 1. Recherche d'un bouton ciblé par ID (ex: #seat-1B)
   if (seatInfo && seatInfo.id) {
-    const selectorBtn = document.querySelector(`#seat-${seatInfo.id}`) ||
+    const selectorBtn = document.querySelector(`[data-seat="${seatInfo.id}"]`) ||
+                        document.querySelector(`#seat-${seatInfo.id}`) ||
                         document.querySelector(`button[onclick*='${seatInfo.id}']`);
     if (selectorBtn) {
       selectorBtn.click();
@@ -383,42 +413,30 @@ function triggerDirectClick(r, c) {
     }
   }
 
-  // 2. Clic sur l'élément du DOM ou sur le Canvas
   const elemToClick = targetEl || liveSession.canvasElem;
   if (elemToClick) {
     const rect = elemToClick.getBoundingClientRect();
-    let clickX, clickY;
+    let clickX = rect.left + rect.width / 2;
+    let clickY = rect.top + rect.height / 2;
 
-    if (targetEl && targetEl !== liveSession.canvasElem) {
-      clickX = rect.left + rect.width / 2;
-      clickY = rect.top + rect.height / 2;
-    } else if (liveSession.canvasElem) {
-      const cellWidth = rect.width / liveSession.maxCols;
-      const cellHeight = rect.height / liveSession.maxRows;
-      clickX = rect.left + (c + 0.5) * cellWidth;
-      clickY = rect.top + (r + 0.5) * cellHeight;
-    }
+    const eventOptions = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: clickX,
+      clientY: clickY,
+      view: window
+    };
 
-    if (clickX && clickY) {
-      const eventOptions = {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        clientX: clickX,
-        clientY: clickY,
-        view: window
-      };
-
-      const targetNode = document.elementFromPoint(clickX, clickY) || elemToClick;
-      targetNode.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
-      targetNode.dispatchEvent(new MouseEvent("mousedown", eventOptions));
-      targetNode.dispatchEvent(new PointerEvent("pointerup", eventOptions));
-      targetNode.dispatchEvent(new MouseEvent("mouseup", eventOptions));
-      if (typeof targetNode.click === "function") {
-        targetNode.click();
-      } else {
-        targetNode.dispatchEvent(new MouseEvent("click", eventOptions));
-      }
+    const targetNode = document.elementFromPoint(clickX, clickY) || elemToClick;
+    targetNode.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
+    targetNode.dispatchEvent(new MouseEvent("mousedown", eventOptions));
+    targetNode.dispatchEvent(new PointerEvent("pointerup", eventOptions));
+    targetNode.dispatchEvent(new MouseEvent("mouseup", eventOptions));
+    if (typeof targetNode.click === "function") {
+      targetNode.click();
+    } else {
+      targetNode.dispatchEvent(new MouseEvent("click", eventOptions));
     }
   }
 }
@@ -455,9 +473,9 @@ function renderCurrentPosition() {
   const cellValue = liveSession.matrix[r]?.[c];
   const seatInfo = liveSession.seats[`${r},${c}`];
 
-  // Auto-scroll pour garantir la visibilité du siège courant
   autoScrollToCursor(r, c);
   drawOverlayCursor();
+  updateDotPadDisplay();
 
   if (cellValue === 0) {
     playTone(220, "triangle", 0.05);
@@ -471,7 +489,7 @@ function renderCurrentPosition() {
   }
 }
 
-// 7. DÉCLENCHEMENT DYNAMIQUE
+// 8. DÉCLENCHEMENT DYNAMIQUE
 async function startAutoCapture() {
   speak("Analyse du plan en cours...");
   const rawSeats = analyzeSeatmapDOM();
@@ -518,7 +536,7 @@ async function startAutoCapture() {
   }
 }
 
-// 8. ÉCOUTEURS ÉVÉNEMENTS
+// 9. ÉCOUTEURS CLAVIER ET MESSAGES
 window.addEventListener("keydown", (e) => {
   if (e.altKey && (e.code === "KeyS" || e.key === "s" || e.key === "S")) {
     e.preventDefault();
@@ -602,8 +620,13 @@ window.addEventListener("keydown", (e) => {
   if (moved) renderCurrentPosition();
 }, true);
 
-// COMMUNICATION EXTENSION
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "WEBHID_CONNECTED") {
+    updateDotPadDisplay();
+    sendResponse({ status: "OK" });
+    return true;
+  }
+
   if (request.action === "CAPTURE_MAP") {
     startAutoCapture().then(payload => {
       sendResponse(payload);
