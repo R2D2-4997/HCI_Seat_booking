@@ -45,10 +45,11 @@
 </head>
 <body>
   <h3>TactileSeat — Dot Pad</h3>
-  <p style="font-size:12px;color:#555">Gardez ce panneau ouvert : il maintient la connexion au Dot Pad.</p>
+  <p style="font-size:12px;color:#555">Gardez cet onglet ouvert (vous pouvez l'épingler) : il maintient la connexion au Dot Pad. Revenez ensuite sur l'onglet du site de réservation.</p>
 
   <button id="btn-usb">Connecter (USB)</button>
   <button id="btn-bluetooth">Connecter (Bluetooth)</button>
+  <button id="btn-bluetooth-all" class="secondary">Bluetooth : afficher tous les appareils</button>
   <button id="btn-disconnect" class="secondary">Déconnecter</button>
 
   <h4>Tests du matériel</h4>
@@ -59,6 +60,9 @@
   <div id="status" role="status" aria-live="polite">Non connecté.</div>
   <div id="section" aria-live="polite"></div>
 
-  <script type="module" src="sidepanel.js"></script>
+  <h4>Journal Bluetooth (débogage)</h4>
+  <pre id="log" style="font-size:11px;background:#f7fafc;border:1px solid #e2e8f0;padding:8px;max-height:300px;overflow:auto;white-space:pre-wrap;"></pre>
+
+  <script type="module" src="dotpad-page.js"></script>
 </body>
 </html>

@@ -5,15 +5,11 @@
   "description": "Cartographie spatiale et haptique de sièges pour Dot Pad",
   "permissions": [
     "activeTab",
-    "scripting",
-    "sidePanel"
+    "scripting"
   ],
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "TactileSeat"
-  },
-  "side_panel": {
-    "default_path": "sidepanel/sidepanel.html"
   },
   "content_scripts": [
     {

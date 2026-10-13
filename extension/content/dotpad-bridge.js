@@ -2,8 +2,8 @@
 // Pont vers le Dot Pad
 // Responsable : Personne 3
 //
-// La connexion au Dot Pad vit dans le panneau latéral (sidepanel/),
-// qui reste ouvert, contrairement au popup. Ce fichier lui envoie
+// La connexion au Dot Pad vit dans la page Dot Pad (dotpad-page/),
+// ouverte dans un onglet, contrairement au popup qui se ferme. Ce fichier lui envoie
 // simplement la matrice et la position du curseur à afficher.
 // ============================================================
 

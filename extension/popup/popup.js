@@ -20,16 +20,23 @@ document.getElementById("btn-capture").addEventListener("click", async () => {
   });
 });
 
-// La connexion au Dot Pad se fait dans le panneau latéral, qui reste ouvert
-// (le popup se ferme dès qu'on clique ailleurs et couperait la connexion).
-// L'id de la fenêtre est lu à l'avance : sidePanel.open() doit être appelé
-// directement dans le clic, sans attente avant.
-let currentWindowId = null;
-chrome.windows.getCurrent().then(win => { currentWindowId = win.id; });
+// La connexion au Dot Pad se fait dans un onglet de l'extension, qui reste ouvert
+// (le popup se ferme dès qu'on clique ailleurs et couperait la connexion,
+// et Chrome n'ouvre pas la fenêtre Bluetooth / USB depuis un panneau latéral).
+const DOTPAD_PAGE_URL = chrome.runtime.getURL("dotpad-page/dotpad-page.html");
 
-document.getElementById("btn-sidepanel").addEventListener("click", async () => {
-  if (currentWindowId === null) return;
+document.getElementById("btn-dotpad-page").addEventListener("click", async () => {
+  // Réutilise l'onglet s'il est déjà ouvert.
+  const [existing] = await chrome.runtime.getContexts({
+    contextTypes: ["TAB"],
+    documentUrls: [DOTPAD_PAGE_URL]
+  });
 
-  await chrome.sidePanel.open({ windowId: currentWindowId });
+  if (existing) {
+    await chrome.tabs.update(existing.tabId, { active: true });
+    await chrome.windows.update(existing.windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url: DOTPAD_PAGE_URL, pinned: true });
+  }
   window.close();
 });

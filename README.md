@@ -35,13 +35,13 @@ extension/
     overlay.js                P3  Curseur visuel et défilement
     actions.js                P3  Clic sur un siège, bouton de paiement
     navigation.js             P3  Touches du clavier
-    dotpad-bridge.js          P3  Envoi de la matrice au panneau Dot Pad
+    dotpad-bridge.js          P3  Envoi de la matrice à la page Dot Pad
 
   dotpad/                     P3  Modules du Dot Pad
     dotpad-manager.js         P3  Connexion USB / Bluetooth via le SDK
     tactile-map.js            P3  Matrice -> picots -> données hexadécimales
 
-  sidepanel/                  P3  Panneau latéral qui garde la connexion au Dot Pad
+  dotpad-page/                P3  Onglet qui garde la connexion au Dot Pad
   popup/                      COMMUN  Popup de l'extension
   sdk/                        SDK officiel Dot Pad (ne pas modifier)
 
@@ -66,7 +66,7 @@ Pour l'analyse par capture d'écran, définir la clé Gemini dans la variable d'
 3. Après chaque modification ou changement de branche : bouton ↻ sur l'extension, puis F5 sur la page.
 
 ### Utilisation
-1. Clic sur l'icône TactileSeat → **Ouvrir le panneau Dot Pad**, puis **Connecter (USB)** ou **(Bluetooth)**. Garder le panneau ouvert.
+1. Clic sur l'icône TactileSeat → **Ouvrir la page Dot Pad** (un onglet épinglé s'ouvre), puis **Connecter (USB)** ou **(Bluetooth)**. Garder cet onglet ouvert et revenir sur le site de réservation.
 2. Sur la page de réservation : **Alt + S** pour analyser le plan.
 3. Flèches pour se déplacer, Shift + flèches pour sauter au prochain siège libre, Entrée pour sélectionner, P pour payer, Alt + L pour changer de langue.
 4. Boutons Panning gauche / droite du Dot Pad : section précédente / suivante.
@@ -85,7 +85,7 @@ Chaque case = 4 × 4 picots (2 cellules du Dot Pad). La dernière ligne et la de
 | 5 | Structure (mur, scène) | ligne continue |
 | — | Curseur | grand carré plein (3 × 3) |
 
-Les motifs se règlent dans `PATTERNS` (`extension/dotpad/tactile-map.js`). Si l'image de test (bouton dans le panneau) apparaît brouillée sur le Dot Pad, corriger `DOT_BITS` dans le même fichier.
+Les motifs se règlent dans `PATTERNS` (`extension/dotpad/tactile-map.js`). Si l'image de test (bouton dans la page Dot Pad) apparaît brouillée sur le Dot Pad, corriger `DOT_BITS` dans le même fichier.
 
 ## Règles Git
 

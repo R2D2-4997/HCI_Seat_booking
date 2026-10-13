@@ -70,7 +70,7 @@ function activateSession(matrix, seats, rows, cols) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // Le panneau Dot Pad vient de se connecter : on lui renvoie l'état courant.
+  // La page Dot Pad vient de se connecter : on lui renvoie l'état courant.
   if (request.action === "DOTPAD_REQUEST_FRAME") {
     updateDotPadDisplay();
     sendResponse({ status: "OK" });

@@ -3,7 +3,7 @@
 // Responsable : Personne 1
 // ============================================================
 
-chrome.runtime.onInstalled.addListener(() => {
+ chrome.runtime.onInstalled.addListener(() => {
   console.log("TactileSeat service worker initialisé.");
 });
 
