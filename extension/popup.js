@@ -1,3 +1,8 @@
+import { DotPadManager } from "./dotpad.js";
+
+// Manages the DotPad connection.
+const dotpad = new DotPadManager();
+
 const statusDiv = document.getElementById("status");
 
 document.getElementById("btn-capture").addEventListener("click", async () => {
@@ -30,5 +35,22 @@ document.getElementById("btn-webhid").addEventListener("click", async () => {
     }
   } catch (err) {
     statusDiv.innerText = "Erreur WebHID : " + err.message;
+  }
+});
+
+document.getElementById("btn-bluetooth").addEventListener("click", async () => {
+  statusDiv.innerText = "Connexion Bluetooth en cours...";
+
+  try {
+    // Connects to a DotPad-compatible Bluetooth device.
+    const device = await dotpad.connectBluetooth();
+
+    console.log("[DotPad] Bluetooth device:", device);
+
+    statusDiv.innerText = "DotPad connecté en Bluetooth !";
+  } catch (error) {
+    console.error("[DotPad] Bluetooth error:", error);
+
+    statusDiv.innerText = "Erreur Bluetooth : " + error.message;
   }
 });
