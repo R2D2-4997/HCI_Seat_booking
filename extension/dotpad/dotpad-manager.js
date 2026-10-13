@@ -1,17 +1,24 @@
+// ============================================================
+// Connexion au Dot Pad (USB ou Bluetooth) via le SDK officiel
+// Responsable : Personne 3
+// ============================================================
 
 import {
   DotPadScanner,
   DotPadSDK,
   DataCodes,
   KeyCodes
-} from "./sdk/DotPadSDK-3.0.3.js";
+} from "../sdk/DotPadSDK-3.0.3.js";
 
 // Manages DotPad connection, display, and button events.
 export class DotPadManager {
-  constructor() {
+  // onSection(direction): called with -1 / +1 when a panning key is pressed.
+  // onDisconnect(): called when the device is lost.
+  constructor({ onSection = () => {}, onDisconnect = () => {} } = {}) {
     this.scanner = new DotPadScanner();
     this.sdk = new DotPadSDK();
     this.device = null;
+    this.lastHex = null;
 
     // Registers device status and physical button callbacks.
     this.sdk.setCallBack(
@@ -20,20 +27,31 @@ export class DotPadManager {
 
         if (code === DataCodes.Disconnected) {
           this.device = null;
+          this.lastHex = null;
+          onDisconnect();
         }
       },
       (device, key, data) => {
         console.log("[DotPad] Button:", key, data);
 
         if (key === KeyCodes.PanningLeft) {
-          console.log("[DotPad] Previous section");
+          onSection(-1);
         }
 
         if (key === KeyCodes.PanningRight) {
-          console.log("[DotPad] Next section");
+          onSection(1);
         }
       }
     );
+  }
+
+  // Graphic area size of the connected device, in cells.
+  get cellRows() {
+    return this.device?.numberCellRows || 10;
+  }
+
+  get cellColumns() {
+    return this.device?.numberCellColumns || 30;
   }
 
   // Connects to a DotPad through Web Serial.
@@ -111,6 +129,10 @@ export class DotPadManager {
       throw new Error("DotPad is not connected.");
     }
 
+    // The pins are slow to move: skip the refresh if nothing changed.
+    if (hexData === this.lastHex) return;
+
+    this.lastHex = hexData;
     this.sdk.displayGraphicData(hexData, this.device);
   }
 
@@ -120,6 +142,7 @@ export class DotPadManager {
       throw new Error("DotPad is not connected.");
     }
 
+    this.lastHex = null;
     this.sdk.displayAllUp(this.device);
   }
 
@@ -129,6 +152,7 @@ export class DotPadManager {
       throw new Error("DotPad is not connected.");
     }
 
+    this.lastHex = null;
     this.sdk.displayAllDown(this.device);
   }
 
@@ -138,6 +162,7 @@ export class DotPadManager {
 
     const device = this.device;
     this.device = null;
+    this.lastHex = null;
     await this.sdk.disconnect(device);
   }
 
