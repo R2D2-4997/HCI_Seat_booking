@@ -7,8 +7,13 @@ document.getElementById("btn-capture").addEventListener("click", async () => {
   if (!tab) return;
 
   chrome.tabs.sendMessage(tab.id, { action: "CAPTURE_MAP" }, async (response) => {
-    if (chrome.runtime.lastError || !response || response.error || !response.dynamicLayout) {
-      statusDiv.innerText = "Erreur : Aucun siège détecté sur cette vue.";
+    if (chrome.runtime.lastError) {
+      statusDiv.innerText = "Veuillez rafraîchir la page web (F5).";
+      return;
+    }
+
+    if (!response || !response.dynamicLayout) {
+      statusDiv.innerText = "Erreur : Échec d'analyse du plan.";
       return;
     }
 

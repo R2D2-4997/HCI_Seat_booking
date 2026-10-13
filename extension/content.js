@@ -4,6 +4,7 @@ let liveSession = {
   matrix: [],
   seats: {},
   seatElements: {},
+  canvasElem: null,
   cursor: { r: 0, c: 0 },
   maxRows: 0,
   maxCols: 0
@@ -48,7 +49,7 @@ function speak(text) {
   window.speechSynthesis.speak(utterance);
 }
 
-// 1. RECHERCHE DANS LE SHADOW DOM
+// 1. RECHERCHE SHADOW DOM
 function querySelectorAllDeep(selector, root = document) {
   let results = Array.from(root.querySelectorAll(selector));
   const allElements = root.querySelectorAll('*');
@@ -60,19 +61,48 @@ function querySelectorAllDeep(selector, root = document) {
   return results;
 }
 
-// 2. EXTRACTION DYNAMIQUE DES SIÈGES DANS LE DOM
+// 2. AUTO-SCROLL (Défilement automatique quand le siège sort de l'écran)
+function autoScrollToCursor(r, c) {
+  const key = `${r},${c}`;
+  const targetEl = liveSession.seatElements[key];
+
+  if (targetEl && targetEl !== document.body && typeof targetEl.getBoundingClientRect === "function") {
+    const rect = targetEl.getBoundingClientRect();
+    const isVisible = (
+      rect.top >= 50 &&
+      rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) - 50
+    );
+
+    if (!isVisible) {
+      targetEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    }
+  } else if (liveSession.canvasElem) {
+    const rect = liveSession.canvasElem.getBoundingClientRect();
+    const cellHeight = rect.height / liveSession.maxRows;
+    const seatY = rect.top + window.scrollY + (r + 0.5) * cellHeight;
+
+    if (seatY < window.scrollY + 100 || seatY > window.scrollY + window.innerHeight - 100) {
+      window.scrollTo({
+        top: Math.max(0, seatY - window.innerHeight / 2),
+        behavior: "smooth"
+      });
+    }
+  }
+}
+
+// 3. EXTRACTION DES SIÈGES DU DOM & CANVAS
 function analyzeSeatmapDOM() {
-  const candidates = querySelectorAllDeep("button, [aria-label], [data-seat], g, rect, div, path");
+  const candidates = querySelectorAllDeep("button, [aria-label], [data-seat], g, rect, div, path, text");
   const detectedSeats = [];
-  const seatRegex = /(?:seat|siège|platz|asiento)?\s*(\d{1,2})\s*([A-K])/i;
+  const seatRegex = /(?:seat|siège|rangée|row)?\s*(\d{1,2})\s*([A-K])/i;
 
   candidates.forEach(el => {
     const rect = el.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0 || rect.width > 120 || rect.height > 120) return;
+    if (rect.width === 0 || rect.height === 0 || rect.width > 200 || rect.height > 200) return;
 
     const aria = el.getAttribute("aria-label") || "";
     const id = el.id || "";
-    const dataSeat = el.getAttribute("data-seat") || el.getAttribute("data-seat-id") || "";
+    const dataSeat = el.getAttribute("data-seat") || el.getAttribute("aria-label") || "";
     const title = el.getAttribute("title") || "";
     const text = el.textContent ? el.textContent.trim() : "";
     const classStr = (el.className || "").toString().toLowerCase();
@@ -93,13 +123,9 @@ function analyzeSeatmapDOM() {
         el.getAttribute("aria-disabled") === "true" ||
         lower.includes("occupied") || lower.includes("occupé") ||
         lower.includes("unavailable") || lower.includes("indisponible") ||
-        lower.includes("blocked") || lower.includes("bloqué") ||
-        classStr.includes("disabled") || classStr.includes("occupied") ||
-        classStr.includes("unavailable")
+        classStr.includes("disabled") || classStr.includes("occupied")
       ) {
         status = "occupied";
-      } else if (lower.includes("selected") || lower.includes("sélectionné") || classStr.includes("selected")) {
-        status = "selected";
       }
 
       if (!detectedSeats.some(s => s.id === seatId)) {
@@ -115,22 +141,71 @@ function analyzeSeatmapDOM() {
     }
   });
 
+  // Détection complémentaire si la page utilise un <canvas> (comme sitedemo.html)
+  const canvas = querySelectorAllDeep("canvas")[0];
+  if (canvas) {
+    liveSession.canvasElem = canvas;
+  }
+
   return detectedSeats;
 }
 
-// 3. RECONSTRUCTION MATRICIELLE AVEC RANGÉES CONSÉCUTIVES (Inclus rangées entièrement grisées)
+// 4. CONSTRUCTION MATRICIELLE
 function buildDynamicLayout(seats) {
+  // Support Canvas / Démo si aucun élément DOM individuel n'est trouvé
+  if ((!seats || seats.length === 0) && liveSession.canvasElem) {
+    const canvas = liveSession.canvasElem;
+    const rect = canvas.getBoundingClientRect();
+    
+    // Démo A321neo / Canvas : 5 rangées x 7 colonnes (A, B, C | Couloir | D, E, F)
+    const rows = 5;
+    const cols = 7;
+    const colLetters = ["A", "B", "C", "", "D", "E", "F"];
+    const matrix = [];
+    const seatsMetadata = {};
+    const seatElements = {};
+
+    for (let r = 0; r < rows; r++) {
+      const rowLine = [];
+      for (let c = 0; c < cols; c++) {
+        const key = `${r},${c}`;
+        if (c === 3 || colLetters[c] === "") {
+          rowLine.push(0); // Couloir
+          continue;
+        }
+
+        const seatId = `${r + 1}${colLetters[c]}`;
+        const targetBtn = document.querySelector(`#seat-${seatId}`) || canvas;
+
+        rowLine.push(1); // Disponible
+        seatsMetadata[key] = {
+          id: seatId,
+          type: "Standard",
+          price: "Disponible",
+          status: "available"
+        };
+        seatElements[key] = targetBtn;
+      }
+      matrix.push(rowLine);
+    }
+
+    return {
+      rows: rows,
+      cols: cols,
+      matrix: matrix,
+      seatsMetadata: seatsMetadata,
+      seatElements: seatElements
+    };
+  }
+
   if (!seats || seats.length === 0) return null;
 
   const detectedRows = seats.map(s => s.row);
   const minRow = Math.min(...detectedRows);
   const maxRow = Math.max(...detectedRows);
 
-  // Génération de TOUTES les rangées consécutives de minRow à maxRow
   const rows = [];
-  for (let r = minRow; r <= maxRow; r++) {
-    rows.push(r);
-  }
+  for (let r = minRow; r <= maxRow; r++) rows.push(r);
 
   const letters = [...new Set(seats.map(s => s.letter))].sort();
 
@@ -141,7 +216,7 @@ function buildDynamicLayout(seats) {
       const currentCode = letters[i].charCodeAt(0);
       const nextCode = letters[i + 1].charCodeAt(0);
       if (nextCode - currentCode > 1) {
-        colStructure.push(""); // Couloir
+        colStructure.push("");
       }
     }
   }
@@ -156,7 +231,7 @@ function buildDynamicLayout(seats) {
       const key = `${rIdx},${cIdx}`;
 
       if (lettr === "") {
-        rowLine.push(0); // Couloir
+        rowLine.push(0);
         return;
       }
 
@@ -173,8 +248,7 @@ function buildDynamicLayout(seats) {
         };
         seatElements[key] = seatObj.element;
       } else {
-        // Rangée ou siège complètement grisé dans le DOM
-        rowLine.push(2); // Marqué comme occupé / indisponible
+        rowLine.push(2);
         seatsMetadata[key] = {
           id: `${rNum}${lettr}`,
           type: "Indisponible",
@@ -195,7 +269,7 @@ function buildDynamicLayout(seats) {
   };
 }
 
-// 4. OVERLAY ET RENDU SUR LES SIÈGES GRISÉS
+// 5. OVERLAY CANVAS & CURSEUR VISUEL
 let overlayCanvas = null;
 
 function getOrCreateOverlay() {
@@ -227,12 +301,31 @@ function drawOverlayCursor() {
 
   if (!liveSession.active) return;
 
-  // A. Dessiner TOUS les sièges (Libres en bleu, Indisponibles/Grisés en gris)
+  // Calcul pour plan Canvas (Démo)
+  if (liveSession.canvasElem) {
+    const rect = liveSession.canvasElem.getBoundingClientRect();
+    const cellWidth = rect.width / liveSession.maxCols;
+    const cellHeight = rect.height / liveSession.maxRows;
+
+    const { r, c } = liveSession.cursor;
+    const x = rect.left + window.scrollX + c * cellWidth;
+    const y = rect.top + window.scrollY + r * cellHeight;
+
+    ctx.fillStyle = "rgba(229, 62, 62, 0.3)";
+    ctx.fillRect(x + 2, y + 2, cellWidth - 4, cellHeight - 4);
+
+    ctx.strokeStyle = "#e53e3e";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, cellWidth, cellHeight);
+    return;
+  }
+
+  // Calcul pour plan basé sur le DOM (Air France / Autres)
   Object.keys(liveSession.seats).forEach(key => {
     const el = liveSession.seatElements[key];
     const info = liveSession.seats[key];
 
-    if (el) {
+    if (el && el !== document.body) {
       const rect = el.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         const x = rect.left + window.scrollX;
@@ -251,12 +344,11 @@ function drawOverlayCursor() {
     }
   });
 
-  // B. Curseur actif en rouge
   const { r, c } = liveSession.cursor;
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
 
-  if (targetEl) {
+  if (targetEl && targetEl !== document.body) {
     const rect = targetEl.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       const x = rect.left + window.scrollX;
@@ -275,30 +367,58 @@ function drawOverlayCursor() {
 window.addEventListener("scroll", () => { if (liveSession.active) drawOverlayCursor(); }, true);
 window.addEventListener("resize", () => { if (liveSession.active) drawOverlayCursor(); });
 
-// 5. ACTION DE CLIC ET BOUTON DE PAIEMENT
+// 6. CLIC DIRECT (DOM & CANVAS)
 function triggerDirectClick(r, c) {
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
+  const seatInfo = liveSession.seats[key];
 
-  if (targetEl) {
-    const rect = targetEl.getBoundingClientRect();
-    const eventOptions = {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      clientX: rect.left + rect.width / 2,
-      clientY: rect.top + rect.height / 2,
-      view: window
-    };
+  // 1. Recherche d'un bouton ciblé par ID (ex: #seat-1B)
+  if (seatInfo && seatInfo.id) {
+    const selectorBtn = document.querySelector(`#seat-${seatInfo.id}`) ||
+                        document.querySelector(`button[onclick*='${seatInfo.id}']`);
+    if (selectorBtn) {
+      selectorBtn.click();
+      return;
+    }
+  }
 
-    targetEl.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
-    targetEl.dispatchEvent(new MouseEvent("mousedown", eventOptions));
-    targetEl.dispatchEvent(new PointerEvent("pointerup", eventOptions));
-    targetEl.dispatchEvent(new MouseEvent("mouseup", eventOptions));
-    if (typeof targetEl.click === "function") {
-      targetEl.click();
-    } else {
-      targetEl.dispatchEvent(new MouseEvent("click", eventOptions));
+  // 2. Clic sur l'élément du DOM ou sur le Canvas
+  const elemToClick = targetEl || liveSession.canvasElem;
+  if (elemToClick) {
+    const rect = elemToClick.getBoundingClientRect();
+    let clickX, clickY;
+
+    if (targetEl && targetEl !== liveSession.canvasElem) {
+      clickX = rect.left + rect.width / 2;
+      clickY = rect.top + rect.height / 2;
+    } else if (liveSession.canvasElem) {
+      const cellWidth = rect.width / liveSession.maxCols;
+      const cellHeight = rect.height / liveSession.maxRows;
+      clickX = rect.left + (c + 0.5) * cellWidth;
+      clickY = rect.top + (r + 0.5) * cellHeight;
+    }
+
+    if (clickX && clickY) {
+      const eventOptions = {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        clientX: clickX,
+        clientY: clickY,
+        view: window
+      };
+
+      const targetNode = document.elementFromPoint(clickX, clickY) || elemToClick;
+      targetNode.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
+      targetNode.dispatchEvent(new MouseEvent("mousedown", eventOptions));
+      targetNode.dispatchEvent(new PointerEvent("pointerup", eventOptions));
+      targetNode.dispatchEvent(new MouseEvent("mouseup", eventOptions));
+      if (typeof targetNode.click === "function") {
+        targetNode.click();
+      } else {
+        targetNode.dispatchEvent(new MouseEvent("click", eventOptions));
+      }
     }
   }
 }
@@ -326,7 +446,7 @@ function proceedToPayment() {
     payBtn.scrollIntoView({ behavior: "smooth", block: "center" });
     setTimeout(() => { payBtn.click(); }, 1000);
   } else {
-    speak("Bouton de paiement non trouvé sur cette vue.");
+    speak("Bouton de paiement non trouvé.");
   }
 }
 
@@ -335,6 +455,8 @@ function renderCurrentPosition() {
   const cellValue = liveSession.matrix[r]?.[c];
   const seatInfo = liveSession.seats[`${r},${c}`];
 
+  // Auto-scroll pour garantir la visibilité du siège courant
+  autoScrollToCursor(r, c);
   drawOverlayCursor();
 
   if (cellValue === 0) {
@@ -349,31 +471,33 @@ function renderCurrentPosition() {
   }
 }
 
-// 6. DÉCLENCHEMENT AUTOMATIQUE VIA RACCOURCI
+// 7. DÉCLENCHEMENT DYNAMIQUE
 async function startAutoCapture() {
   speak("Analyse du plan en cours...");
   const rawSeats = analyzeSeatmapDOM();
   const layout = buildDynamicLayout(rawSeats);
 
-  if (!layout || layout.rows === 0) {
-    speak("Aucun plan de siège détecté.");
+  if (!layout) {
+    speak("Aucun plan détecté.");
     return;
   }
 
   liveSession.seatElements = layout.seatElements;
 
+  const payload = {
+    dynamicLayout: {
+      rows: layout.rows,
+      cols: layout.cols,
+      matrix: layout.matrix,
+      seatsMetadata: layout.seatsMetadata
+    }
+  };
+
   try {
     const res = await fetch("http://127.0.0.1:8000/process-seatmap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        dynamic_layout: {
-          rows: layout.rows,
-          cols: layout.cols,
-          matrix: layout.matrix,
-          seatsMetadata: layout.seatsMetadata
-        }
-      })
+      body: JSON.stringify({ dynamic_layout: payload.dynamicLayout })
     });
     const data = await res.json();
 
@@ -387,14 +511,15 @@ async function startAutoCapture() {
     window.focus();
     renderCurrentPosition();
     speak("Session tactile activée.");
+    return payload;
   } catch (err) {
     speak("Erreur de connexion au serveur Python.");
+    return payload;
   }
 }
 
-// 7. ÉCOUTEUR CLAVIER ET BOUTON DOT PAD
+// 8. ÉCOUTEURS ÉVÉNEMENTS
 window.addEventListener("keydown", (e) => {
-  // Raccourci de lancement rapide : Alt + S
   if (e.altKey && (e.code === "KeyS" || e.key === "s" || e.key === "S")) {
     e.preventDefault();
     startAutoCapture();
@@ -419,7 +544,6 @@ window.addEventListener("keydown", (e) => {
   let { r, c } = liveSession.cursor;
   let moved = false;
 
-  // Mode saut rapide aux sièges libres avec Shift + Flèches
   if (e.shiftKey) {
     if (key === "ArrowRight") {
       for (let nextC = c + 1; nextC < liveSession.maxCols; nextC++) {
@@ -439,7 +563,6 @@ window.addEventListener("keydown", (e) => {
       }
     }
   } else {
-    // Navigation pas-à-pas standard
     if (key === "ArrowRight" && c < liveSession.maxCols - 1) {
       liveSession.cursor.c++;
       moved = true;
@@ -467,7 +590,7 @@ window.addEventListener("keydown", (e) => {
       speak("Siège indisponible");
     } else {
       playTone(880, "triangle", 0.3);
-      speak(`Siège ${seatInfo ? seatInfo.id : ''} sélectionné. Appuyez sur P pour passer au paiement.`);
+      speak(`Siège ${seatInfo ? seatInfo.id : ''} sélectionné.`);
 
       liveSession.matrix[r][c] = 2;
       triggerDirectClick(r, c);
@@ -479,11 +602,12 @@ window.addEventListener("keydown", (e) => {
   if (moved) renderCurrentPosition();
 }, true);
 
-// Communication Extension
+// COMMUNICATION EXTENSION
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "CAPTURE_MAP") {
-    startAutoCapture();
-    sendResponse({ status: "STARTED" });
+    startAutoCapture().then(payload => {
+      sendResponse(payload);
+    });
     return true;
   }
 
