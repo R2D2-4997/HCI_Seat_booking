@@ -10,23 +10,90 @@ let liveSession = {
   maxCols: 0
 };
 
+// Langue active ("fr", "en", "ko")
+let currentLang = "fr";
+
+// Dictionnaire trilingue (FR, EN, KO)
+const I18N = {
+  fr: {
+    langName: "Français",
+    code: "fr-FR",
+    analyzing: "Analyse automatique du plan...",
+    ready: "Session tactile activée.",
+    aisle: "Couloir",
+    occupied: "Siège indisponible",
+    seat: "Siège",
+    selected: "sélectionné. Appuyez sur P pour passer au paiement.",
+    payment: "Redirection vers la séquence de paiement.",
+    noPayment: "Bouton de paiement non trouvé.",
+    errBackend: "Erreur : Moteur Python non démarré.",
+    errCapture: "Erreur lors de la capture d'écran."
+  },
+  en: {
+    langName: "English",
+    code: "en-US",
+    analyzing: "Automatic seatmap analysis...",
+    ready: "Tactile session activated.",
+    aisle: "Aisle",
+    occupied: "Seat unavailable",
+    seat: "Seat",
+    selected: "selected. Press P to proceed to payment.",
+    payment: "Redirecting to payment sequence.",
+    noPayment: "Payment button not found.",
+    errBackend: "Error: Python engine not running.",
+    errCapture: "Screenshot capture error."
+  },
+  ko: {
+    langName: "한국어",
+    code: "ko-KR",
+    analyzing: "좌석 배치도 자동 분석 중...",
+    ready: "터치 세션이 활성화되었습니다.",
+    aisle: "통로",
+    occupied: "선택 불가 좌석",
+    seat: "좌석",
+    selected: "선택되었습니다. 결제하려면 P를 누르세요.",
+    payment: "결제 페이지로 이동합니다.",
+    noPayment: "결제 버튼을 찾을 수 없습니다.",
+    errBackend: "오류: 파이썬 엔진이 실행되지 않았습니다.",
+    errCapture: "화면 캡처 오류입니다."
+  }
+};
+
 // Référence de l'appareil Dot Pad (WebHID)
 let dotPadDevice = null;
 
 // Audio & Synthèse vocale
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let frenchVoice = null;
+let availableVoices = [];
 
-function loadBestVoice() {
-  const voices = window.speechSynthesis.getVoices();
-  frenchVoice = voices.find(v => v.lang.startsWith("fr") && v.name.includes("Google")) ||
-                voices.find(v => v.lang.startsWith("fr") && v.name.includes("Natural")) ||
-                voices.find(v => v.lang.startsWith("fr")) || null;
+function loadVoices() {
+  availableVoices = window.speechSynthesis.getVoices();
 }
 if (speechSynthesis.onvoiceschanged !== undefined) {
-  speechSynthesis.onvoiceschanged = loadBestVoice;
+  speechSynthesis.onvoiceschanged = loadVoices;
 }
-loadBestVoice();
+loadVoices();
+
+function getVoiceForLang(langKey) {
+  const voices = window.speechSynthesis.getVoices();
+  const target = langKey.toLowerCase(); // "fr", "en", "ko"
+
+  // 1. Recherche d'une voix Google / Natural de haute qualité
+  let matchedVoice = voices.find(v => {
+    const l = (v.lang || "").toLowerCase().replace('_', '-');
+    return l.startsWith(target) && (v.name.includes("Google") || v.name.includes("Natural"));
+  });
+
+  // 2. Fallback sur n'importe quelle voix installée pour cette langue
+  if (!matchedVoice) {
+    matchedVoice = voices.find(v => {
+      const l = (v.lang || "").toLowerCase().replace('_', '-');
+      return l.startsWith(target);
+    });
+  }
+
+  return matchedVoice;
+}
 
 function playTone(freq, type, duration) {
   try {
@@ -43,14 +110,46 @@ function playTone(freq, type, duration) {
   } catch (e) {}
 }
 
-function speak(text) {
+function speak(text, overrideLang = null) {
+  const langKey = overrideLang || currentLang;
+  const i18nObj = I18N[langKey];
   window.speechSynthesis.cancel();
+  
   const utterance = new SpeechSynthesisUtterance(text);
-  if (frenchVoice) utterance.voice = frenchVoice;
-  utterance.lang = "fr-FR";
+  utterance.lang = i18nObj.code;
   utterance.rate = 1.15;
+
+  const voice = getVoiceForLang(langKey);
+  if (voice) {
+    utterance.voice = voice;
+  }
+
   window.speechSynthesis.speak(utterance);
 }
+
+// Bascule de langue accessible (Alt + L)
+function cycleLanguage() {
+  const langs = ["fr", "en", "ko"];
+  const nextIdx = (langs.indexOf(currentLang) + 1) % langs.length;
+  currentLang = langs[nextIdx];
+  
+  const langAnnouncement = {
+    fr: "Langue : Français",
+    en: "Language: English",
+    ko: "언어: 한국어"
+  };
+
+  speak(langAnnouncement[currentLang], currentLang);
+}
+
+// Détection automatique de la langue de la page HTML au chargement
+function autoDetectPageLanguage() {
+  const htmlLang = (document.documentElement.lang || "").toLowerCase();
+  if (htmlLang.startsWith("ko")) currentLang = "ko";
+  else if (htmlLang.startsWith("en")) currentLang = "en";
+  else currentLang = "fr";
+}
+autoDetectPageLanguage();
 
 // 1. MISE À JOUR HAPTIQUE DOT PAD (WebHID)
 async function updateDotPadDisplay() {
@@ -81,10 +180,7 @@ async function updateDotPadDisplay() {
       const cellValue = liveSession.matrix[r]?.[c];
       const dotIndex = r * DOTPAD_COLS + c;
 
-      // 1 = Siège libre (0xFF / picot levé), 0 ou 2 = Couloir / Siège indisponible (0x00 / picot baissé)
       let pinState = (cellValue === 1) ? 0xFF : 0x00;
-
-      // Surbrillance du curseur actif
       if (r === cursorR && c === cursorC) {
         pinState = 0xFF;
       }
@@ -95,9 +191,7 @@ async function updateDotPadDisplay() {
 
   try {
     await dotPadDevice.sendReport(0x00, displayBuffer);
-  } catch (err) {
-    console.error("Erreur d'envoi vers le Dot Pad :", err);
-  }
+  } catch (err) {}
 }
 
 // 2. RECHERCHE SHADOW DOM
@@ -112,7 +206,36 @@ function querySelectorAllDeep(selector, root = document) {
   return results;
 }
 
-// 3. AUTO-SCROLL (Défilement automatique quand le siège sort de l'écran)
+// 3. MASQUAGE TEMPORAIRE POPUPS
+function hideOverlaysTemporarily() {
+  const hiddenElements = [];
+  const candidates = querySelectorAllDeep("div, section, aside, iframe, header");
+
+  candidates.forEach(el => {
+    const style = window.getComputedStyle(el);
+    const className = (el.className || "").toString().toLowerCase();
+
+    if (
+      (style.position === "fixed" || style.position === "sticky") &&
+      !el.id.includes("tactile-seat") &&
+      (parseInt(style.zIndex, 10) > 100 || className.includes("cookie") || className.includes("modal") || className.includes("popup"))
+    ) {
+      const originalDisplay = el.style.display;
+      el.style.display = "none";
+      hiddenElements.push({ element: el, originalDisplay });
+    }
+  });
+
+  return hiddenElements;
+}
+
+function restoreOverlays(hiddenElements) {
+  hiddenElements.forEach(item => {
+    item.element.style.display = item.originalDisplay;
+  });
+}
+
+// 4. AUTO-SCROLL
 function autoScrollToCursor(r, c) {
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
@@ -127,25 +250,14 @@ function autoScrollToCursor(r, c) {
     if (!isVisible) {
       targetEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
     }
-  } else if (liveSession.canvasElem) {
-    const rect = liveSession.canvasElem.getBoundingClientRect();
-    const cellHeight = rect.height / liveSession.maxRows;
-    const seatY = rect.top + window.scrollY + (r + 0.5) * cellHeight;
-
-    if (seatY < window.scrollY + 100 || seatY > window.scrollY + window.innerHeight - 100) {
-      window.scrollTo({
-        top: Math.max(0, seatY - window.innerHeight / 2),
-        behavior: "smooth"
-      });
-    }
   }
 }
 
-// 4. EXTRACTION DYNAMIQUE DES SIÈGES DU DOM & CANVAS
+// 5. EXTRACTION DYNAMIQUE DOM
 function analyzeSeatmapDOM() {
-  const candidates = querySelectorAllDeep("button, [aria-label], [data-seat], g, rect, div, path, text");
+  const candidates = querySelectorAllDeep("button, [aria-label], [data-seat], [data-test-id], g, rect, div, span, path, text");
   const detectedSeats = [];
-  const seatRegex = /(?:seat|siège|rangée|row)?\s*(\d{1,2})\s*([A-K])/i;
+  const seatRegex = /(?:seat|siège|rangée|row|좌석)?\s*(\d{1,2})\s*([A-K])/i;
 
   candidates.forEach(el => {
     const rect = el.getBoundingClientRect();
@@ -153,7 +265,7 @@ function analyzeSeatmapDOM() {
 
     const aria = el.getAttribute("aria-label") || "";
     const id = el.id || "";
-    const dataSeat = el.getAttribute("data-seat") || el.getAttribute("aria-label") || "";
+    const dataSeat = el.getAttribute("data-seat") || el.getAttribute("data-test-id") || "";
     const title = el.getAttribute("title") || "";
     const text = el.textContent ? el.textContent.trim() : "";
     const classStr = (el.className || "").toString().toLowerCase();
@@ -172,7 +284,7 @@ function analyzeSeatmapDOM() {
       if (
         el.hasAttribute("disabled") ||
         el.getAttribute("aria-disabled") === "true" ||
-        lower.includes("occupied") || lower.includes("occupé") ||
+        lower.includes("occupied") || lower.includes("occupé") || lower.includes("선택불가") ||
         lower.includes("unavailable") || lower.includes("indisponible") ||
         classStr.includes("disabled") || classStr.includes("occupied")
       ) {
@@ -200,54 +312,20 @@ function analyzeSeatmapDOM() {
   return detectedSeats;
 }
 
-// 5. RECONSTRUCTION MATRICIELLE
+function findSeatmapElement() {
+  const svgs = querySelectorAllDeep("svg, canvas, div[class*='seat'], div[class*='cabin']");
+  let best = null;
+  let maxA = 0;
+  svgs.forEach(el => {
+    const r = el.getBoundingClientRect();
+    const a = r.width * r.height;
+    if (a > maxA && r.height > 100) { maxA = a; best = el; }
+  });
+  return best || document.body;
+}
+
+// 6. RECONSTRUCTION MATRICIELLE
 function buildDynamicLayout(seats) {
-  if ((!seats || seats.length === 0) && liveSession.canvasElem) {
-    const canvas = liveSession.canvasElem;
-    const rows = 5;
-    const cols = 7;
-    const colLetters = ["A", "B", "C", "", "D", "E", "F"];
-    const matrix = [];
-    const seatsMetadata = {};
-    const seatElements = {};
-
-    for (let r = 0; r < rows; r++) {
-      const rowLine = [];
-      for (let c = 0; c < cols; c++) {
-        const key = `${r},${c}`;
-        if (c === 3 || colLetters[c] === "") {
-          rowLine.push(0);
-          continue;
-        }
-
-        const seatId = `${r + 1}${colLetters[c]}`;
-        const targetBtn = document.querySelector(`[data-seat="${seatId}"]`) ||
-                            document.querySelector(`#seat-${seatId}`) || canvas;
-
-        const isOccupied = targetBtn.hasAttribute("disabled") || targetBtn.getAttribute("data-status") === "occupied";
-        const statusCode = isOccupied ? 2 : 1;
-
-        rowLine.push(statusCode);
-        seatsMetadata[key] = {
-          id: seatId,
-          type: "Standard",
-          price: isOccupied ? "Indisponible" : "Disponible",
-          status: isOccupied ? "occupied" : "available"
-        };
-        seatElements[key] = targetBtn;
-      }
-      matrix.push(rowLine);
-    }
-
-    return {
-      rows: rows,
-      cols: cols,
-      matrix: matrix,
-      seatsMetadata: seatsMetadata,
-      seatElements: seatElements
-    };
-  }
-
   if (!seats || seats.length === 0) return null;
 
   const detectedRows = seats.map(s => s.row);
@@ -319,7 +397,7 @@ function buildDynamicLayout(seats) {
   };
 }
 
-// 6. OVERLAY CANVAS & CURSEUR VISUEL
+// 7. OVERLAY CANVAS & CURSEUR VISUEL
 let overlayCanvas = null;
 
 function getOrCreateOverlay() {
@@ -397,7 +475,7 @@ function drawOverlayCursor() {
 window.addEventListener("scroll", () => { if (liveSession.active) drawOverlayCursor(); }, true);
 window.addEventListener("resize", () => { if (liveSession.active) drawOverlayCursor(); });
 
-// 7. CLIC DIRECT
+// 8. CLIC DIRECT ET CIBLAGE PAIEMENT
 function triggerDirectClick(r, c) {
   const key = `${r},${c}`;
   const targetEl = liveSession.seatElements[key];
@@ -442,29 +520,63 @@ function triggerDirectClick(r, c) {
 }
 
 function findPaymentButton() {
-  const candidates = querySelectorAllDeep("button, a, input[type='button'], input[type='submit']");
+  const candidates = querySelectorAllDeep("button, a, input[type='button'], input[type='submit'], [role='button']");
+
   for (const btn of candidates) {
-    const text = (btn.textContent || btn.value || "").toLowerCase();
+    const text = (btn.textContent || btn.value || "").toLowerCase().trim();
+    const dataTestId = (btn.getAttribute("data-test-id") || "").toLowerCase();
+
     if (
-      text.includes("continue") || text.includes("suivant") ||
-      text.includes("pay") || text.includes("paiment") || text.includes("paiement") ||
-      text.includes("confirm") || text.includes("next leg")
+      dataTestId.includes("continue") || 
+      dataTestId.includes("confirm") ||
+      text.includes("continue") ||
+      text.includes("passer au paiement") ||
+      text.includes("confirm seats") ||
+      text.includes("다음") || text.includes("결제") // Mots-clés coréens ("Suivant" / "Paiement")
     ) {
       return btn;
     }
   }
+
   return null;
 }
 
 function proceedToPayment() {
   const payBtn = findPaymentButton();
+  const t = I18N[currentLang];
+
   if (payBtn) {
     playTone(1000, "sine", 0.4);
-    speak("Redirection vers la séquence de paiement.");
+    speak(t.payment);
     payBtn.scrollIntoView({ behavior: "smooth", block: "center" });
-    setTimeout(() => { payBtn.click(); }, 1000);
+
+    setTimeout(() => {
+      const rect = payBtn.getBoundingClientRect();
+      const clickX = rect.left + rect.width / 2;
+      const clickY = rect.top + rect.height / 2;
+
+      const eventOptions = {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        clientX: clickX,
+        clientY: clickY,
+        view: window
+      };
+
+      payBtn.dispatchEvent(new PointerEvent("pointerdown", eventOptions));
+      payBtn.dispatchEvent(new MouseEvent("mousedown", eventOptions));
+      payBtn.dispatchEvent(new PointerEvent("pointerup", eventOptions));
+      payBtn.dispatchEvent(new MouseEvent("mouseup", eventOptions));
+
+      if (typeof payBtn.click === "function") {
+        payBtn.click();
+      } else {
+        payBtn.dispatchEvent(new MouseEvent("click", eventOptions));
+      }
+    }, 600);
   } else {
-    speak("Bouton de paiement non trouvé.");
+    speak(t.noPayment);
   }
 }
 
@@ -472,6 +584,7 @@ function renderCurrentPosition() {
   const { r, c } = liveSession.cursor;
   const cellValue = liveSession.matrix[r]?.[c];
   const seatInfo = liveSession.seats[`${r},${c}`];
+  const t = I18N[currentLang];
 
   autoScrollToCursor(r, c);
   drawOverlayCursor();
@@ -479,65 +592,102 @@ function renderCurrentPosition() {
 
   if (cellValue === 0) {
     playTone(220, "triangle", 0.05);
-    speak("Couloir");
+    speak(t.aisle);
   } else if (cellValue === 2 || (seatInfo && seatInfo.status === "occupied")) {
     playTone(300, "triangle", 0.05);
-    speak(`Siège ${seatInfo ? seatInfo.id : ''}, indisponible`);
+    speak(`${t.seat} ${seatInfo ? seatInfo.id : ''}, ${t.occupied}`);
   } else if (seatInfo) {
     playTone(523, "sine", 0.08);
-    speak(`Siège ${seatInfo.id}`);
+    speak(`${t.seat} ${seatInfo.id}`);
   }
 }
 
-// 8. DÉCLENCHEMENT DYNAMIQUE
+// 9. DÉCLENCHEMENT DYNAMIQUE AVEC HYBRIDE DOM + IA VISION FALLBACK
 async function startAutoCapture() {
-  speak("Analyse du plan en cours...");
+  const t = I18N[currentLang];
+  speak(t.analyzing);
+
   const rawSeats = analyzeSeatmapDOM();
   const layout = buildDynamicLayout(rawSeats);
 
-  if (!layout) {
-    speak("Aucun plan détecté.");
+  if (layout && layout.rows > 0 && layout.seatElements) {
+    liveSession.seatElements = layout.seatElements;
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/process-seatmap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dynamic_layout: {
+            rows: layout.rows,
+            cols: layout.cols,
+            matrix: layout.matrix,
+            seatsMetadata: layout.seatsMetadata
+          }
+        })
+      });
+      const data = await res.json();
+      activateSession(data.matrix, data.seats_metadata || data.seats, data.rows, data.cols);
+    } catch (err) {
+      activateSession(layout.matrix, layout.seatsMetadata, layout.rows, layout.cols);
+    }
+    return { status: "SUCCESS" };
+  }
+
+  const targetElem = findSeatmapElement();
+  if (targetElem) {
+    targetElem.scrollIntoView({ behavior: "instant", block: "center" });
+  }
+
+  const hiddenOverlays = hideOverlaysTemporarily();
+
+  chrome.runtime.sendMessage({ action: "TAKE_SCREENSHOT" }, async (response) => {
+    restoreOverlays(hiddenOverlays);
+
+    if (response && response.imageBase64) {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/process-seatmap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_base64: response.imageBase64 })
+        });
+        const data = await res.json();
+        activateSession(data.matrix, data.seats_metadata || data.seats, data.rows, data.cols);
+      } catch (e) {
+        speak(t.errBackend);
+      }
+    } else {
+      speak(t.errCapture);
+    }
+  });
+
+  return { status: "STARTED" };
+}
+
+function activateSession(matrix, seats, rows, cols) {
+  const t = I18N[currentLang];
+  liveSession.matrix = matrix;
+  liveSession.seats = seats;
+  liveSession.maxRows = rows;
+  liveSession.maxCols = cols;
+  liveSession.cursor = { r: 0, c: 0 };
+  liveSession.active = true;
+
+  window.focus();
+  renderCurrentPosition();
+  speak(t.ready);
+}
+
+// 10. ÉCOUTEURS CLAVIER
+window.addEventListener("keydown", (e) => {
+  // Raccourci Changement de Langue : Alt + L
+  if (e.altKey && (e.code === "KeyL" || e.key === "l" || e.key === "L")) {
+    e.preventDefault();
+    cycleLanguage();
     return;
   }
 
-  liveSession.seatElements = layout.seatElements;
-
-  const payload = {
-    dynamicLayout: {
-      rows: layout.rows,
-      cols: layout.cols,
-      matrix: layout.matrix,
-      seatsMetadata: layout.seatsMetadata
-    }
-  };
-
-  try {
-    const res = await fetch("http://127.0.0.1:8000/process-seatmap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dynamic_layout: payload.dynamicLayout })
-    });
-    const data = await res.json();
-
-    liveSession.matrix = data.matrix;
-    liveSession.seats = data.seats_metadata || data.seats;
-    liveSession.maxRows = data.rows;
-    liveSession.maxCols = data.cols;
-    liveSession.cursor = { r: 0, c: 0 };
-    liveSession.active = true;
-
-    window.focus();
-    renderCurrentPosition();
-    speak("Session tactile activée.");
-    return payload;
-  } catch (err) {
-    speak("Erreur de connexion au serveur Python.");
-    return payload;
-  }
-}
-
-// 9. ÉCOUTEURS CLAVIER ET MESSAGES
-window.addEventListener("keydown", (e) => {
+  // Raccourci Capture : Alt + S
   if (e.altKey && (e.code === "KeyS" || e.key === "s" || e.key === "S")) {
     e.preventDefault();
     startAutoCapture();
@@ -547,6 +697,7 @@ window.addEventListener("keydown", (e) => {
   if (!liveSession.active) return;
 
   const key = e.code;
+  const t = I18N[currentLang];
 
   if (key === "KeyP") {
     e.preventDefault();
@@ -602,13 +753,13 @@ window.addEventListener("keydown", (e) => {
 
     if (cellValue === 0) {
       playTone(180, "sawtooth", 0.2);
-      speak("Couloir");
+      speak(t.aisle);
     } else if (cellValue === 2) {
       playTone(180, "sawtooth", 0.25);
-      speak("Siège indisponible");
+      speak(t.occupied);
     } else {
       playTone(880, "triangle", 0.3);
-      speak(`Siège ${seatInfo ? seatInfo.id : ''} sélectionné.`);
+      speak(`${t.seat} ${seatInfo ? seatInfo.id : ''} ${t.selected}`);
 
       liveSession.matrix[r][c] = 2;
       triggerDirectClick(r, c);
@@ -628,24 +779,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === "CAPTURE_MAP") {
-    startAutoCapture().then(payload => {
-      sendResponse(payload);
-    });
+    startAutoCapture().then(res => sendResponse(res));
     return true;
   }
 
   if (request.action === "START_LIVE_SESSION") {
-    liveSession.matrix = request.data.matrix;
-    liveSession.seats = request.data.seats_metadata || request.data.seats;
-    liveSession.maxRows = request.data.rows;
-    liveSession.maxCols = request.data.cols;
-    liveSession.cursor = { r: 0, c: 0 };
-    liveSession.active = true;
-
-    window.focus();
-    renderCurrentPosition();
-    speak("Session tactile activée.");
+    activateSession(
+      request.data.matrix,
+      request.data.seats_metadata || request.data.seats,
+      request.data.rows,
+      request.data.cols
+    );
     sendResponse({ status: "LIVE_STARTED" });
+    return true;
   }
 
   return true;

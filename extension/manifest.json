@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TactileSeat Extension",
   "version": "1.0",
-  "description": "Spatial seat mapping for Dot Pad",
+  "description": "Cartographie spatiale et haptique de sièges pour Dot Pad",
   "permissions": [
     "activeTab",
     "scripting"
