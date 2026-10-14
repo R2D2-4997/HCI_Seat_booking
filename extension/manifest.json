@@ -8,13 +8,26 @@
     "scripting"
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "popup/popup.html",
     "default_title": "TactileSeat"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "js": [
+        "content/state.js",
+        "content/i18n.js",
+        "content/speech.js",
+        "content/dom-utils.js",
+        "content/extract.js",
+        "content/layout.js",
+        "content/backend-client.js",
+        "content/overlay.js",
+        "content/actions.js",
+        "content/dotpad-bridge.js",
+        "content/navigation.js",
+        "content/main.js"
+      ]
     }
   ],
   "background": {

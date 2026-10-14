@@ -1,4 +1,9 @@
-chrome.runtime.onInstalled.addListener(() => {
+// ============================================================
+// Service worker : capture d'écran de l'onglet
+// Responsable : Personne 1
+// ============================================================
+
+ chrome.runtime.onInstalled.addListener(() => {
   console.log("TactileSeat service worker initialisé.");
 });
 
