@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
@@ -9,13 +10,15 @@ from PIL import Image
 from pydantic import BaseModel
 import uvicorn
 
+# Import sécurisé de la bibliothèque Google GenAI
 try:
-    import google.generativeai as genai
-    # Configurez votre clé API Gemini ici ou via os.environ["GEMINI_API_KEY"]
-    genai.configure(api_key="VOTRE_CLE_API_GEMINI")
+    from google import genai
+    from google.genai import types
     HAS_GEMINI = True
 except ImportError:
     HAS_GEMINI = False
+    genai = None
+    types = None
 
 app = FastAPI(title="TactileSeat Backend AI")
 
@@ -27,11 +30,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+API_KEY = os.environ.get("GEMINI_API_KEY", "VOTRE_CLE_API_GEMINI")
+client = genai.Client(api_key=API_KEY) if HAS_GEMINI else None
+MODEL_NAME = "gemini-2.5-flash"
+
+
 class SeatmapPayload(BaseModel):
     dynamic_layout: Optional[Dict[str, Any]] = None
     image_base64: Optional[str] = None
     width: Optional[float] = 414.0
     height: Optional[float] = 1200.0
+
 
 class SeatmapResponse(BaseModel):
     status: str
@@ -41,29 +50,29 @@ class SeatmapResponse(BaseModel):
     matrix: List[List[int]]
     seats_metadata: Dict[str, Any]
 
-def analyze_seatmap_with_vision(image_bytes: bytes) -> Dict[str, Any]:
-    if not HAS_GEMINI:
-        raise ValueError("Le SDK google-generativeai n'est pas installé sur le serveur.")
 
-    image = Image.open(io.BytesIO(image_bytes))
-    model = genai.GenerativeModel("gemini-1.5-flash")
+def analyze_seatmap_with_vision(image_bytes: bytes) -> Dict[str, Any]:
+    if not HAS_GEMINI or client is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Le SDK 'google-genai' n'est pas installé. Exécutez 'pip install google-genai'."
+        )
 
     prompt = """
     Tu es un système de vision par ordinateur spécialisé dans l'accessibilité pour les déficients visuels.
     Analyse ce plan de réservation de sièges de vol/train et génère une structure JSON stricte.
 
-    Règles de conversion :
-    1. Identifie la disposition exacte des rangées et des colonnes.
-    2. Construis un tableau 2D 'matrix' représentant chaque case de la cabine :
+    Consignes de structure :
+    1. Reconstruis la cabine sous forme de tableau 2D 'matrix' :
        - 0 = Couloir / Allée centrale
        - 1 = Siège disponible
        - 2 = Siège occupé / Indisponible / Bloqué
-    3. Génère un objet 'seatsMetadata' associant chaque coordonnée "rangée,colonne" (ex: "0,1") à :
+    2. Crée un objet 'seatsMetadata' associant chaque coordonnée "rangée,colonne" (ex: "0,1") à :
        - id: Identifiant réel du siège (ex: "31A")
        - price: Prix ou "Disponible"/"Indisponible"
        - status: "available" ou "occupied"
 
-    Retourne EXCLUSIVEMENT un objet JSON valide suivant cette structure, sans balises Markdown :
+    Retourne EXCLUSIVEMENT un objet JSON valide suivant cette structure :
     {
       "rows": 5,
       "cols": 7,
@@ -74,25 +83,37 @@ def analyze_seatmap_with_vision(image_bytes: bytes) -> Dict[str, Any]:
     }
     """
 
-    response = model.generate_content([prompt, image])
-    text_response = response.text.strip()
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                prompt
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1
+            )
+        )
+        return json.loads(response.text)
 
-    if text_response.startswith("```"):
-        text_response = re.sub(r"^```(?:json)?\n?", "", text_response)
-        text_response = re.sub(r"\n?```$", "", text_response)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur API Gemini Vision: {str(e)}")
 
-    return json.loads(text_response)
 
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "TactileSeat AI Engine Running"}
+    return {"status": "ok", "message": "TactileSeat AI Engine Running", "gemini_enabled": HAS_GEMINI}
+
 
 @app.post("/process-seatmap", response_model=SeatmapResponse)
 async def process_seatmap(payload: SeatmapPayload):
     try:
+        response_data = {}
+
         if payload.dynamic_layout and payload.dynamic_layout.get("rows", 0) > 0:
             layout = payload.dynamic_layout
-            return {
+            response_data = {
                 "status": "success",
                 "source": "dom",
                 "rows": layout.get("rows", 0),
@@ -100,8 +121,7 @@ async def process_seatmap(payload: SeatmapPayload):
                 "matrix": layout.get("matrix", []),
                 "seats_metadata": layout.get("seatsMetadata", {})
             }
-
-        if payload.image_base64:
+        elif payload.image_base64:
             base64_data = payload.image_base64
             if "," in base64_data:
                 base64_data = base64_data.split(",")[1]
@@ -109,7 +129,7 @@ async def process_seatmap(payload: SeatmapPayload):
             image_bytes = base64.b64decode(base64_data)
             ai_result = analyze_seatmap_with_vision(image_bytes)
 
-            return {
+            response_data = {
                 "status": "success",
                 "source": "vision_ai",
                 "rows": ai_result.get("rows", 0),
@@ -117,11 +137,20 @@ async def process_seatmap(payload: SeatmapPayload):
                 "matrix": ai_result.get("matrix", []),
                 "seats_metadata": ai_result.get("seatsMetadata", {})
             }
+        else:
+            raise HTTPException(status_code=400, detail="Aucune donnée DOM ni image valide transmise.")
 
-        raise HTTPException(status_code=400, detail="Aucune donnée DOM ni image valide transmise.")
+        print("\n" + "="*60)
+        print(f"  [JSON GÉNÉRÉ EN LIVE - SOURCE : {response_data['source'].upper()}]")
+        print("="*60)
+        print(json.dumps(response_data, indent=2, ensure_ascii=False))
+        print("="*60 + "\n")
+
+        return response_data
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur du moteur IA/Vision : {str(e)}")
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
