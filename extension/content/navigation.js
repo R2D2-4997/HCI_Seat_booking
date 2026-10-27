@@ -16,6 +16,9 @@ function renderCurrentPosition() {
   if (cellValue === 0) {
     playTone(220, "triangle", 0.05);
     speak(t.aisle);
+  } else if (cellValue === 3) {
+    playTone(660, "sine", 0.08);
+    speak(`${t.seat} ${seatInfo ? seatInfo.id : ''}, ${t.selectedState}`);
   } else if (cellValue === 2 || (seatInfo && seatInfo.status === "occupied")) {
     playTone(300, "triangle", 0.05);
     speak(`${t.seat} ${seatInfo ? seatInfo.id : ''}, ${t.occupied}`);
@@ -117,13 +120,21 @@ window.addEventListener("keydown", (e) => {
     } else if (cellValue === 2) {
       playTone(180, "sawtooth", 0.25);
       speak(t.occupied);
+    } else if (cellValue === 3) {
+      playTone(660, "sine", 0.08);
+      speak(`${t.seat} ${seatInfo ? seatInfo.id : ''}, ${t.selectedState}`);
     } else {
+      // 3 = sélectionné (motif propre sur le Dot Pad), et non 2 = occupé.
+      liveSession.matrix[r][c] = 3;
+      triggerDirectClick(r, c);
+
+      // Mise à jour sans renderCurrentPosition() : sa propre annonce
+      // couperait le message de confirmation ci-dessous.
+      drawOverlayCursor();
+      updateDotPadDisplay();
+
       playTone(880, "triangle", 0.3);
       speak(`${t.seat} ${seatInfo ? seatInfo.id : ''} ${t.selected}`);
-
-      liveSession.matrix[r][c] = 2;
-      triggerDirectClick(r, c);
-      renderCurrentPosition();
     }
     return;
   }
