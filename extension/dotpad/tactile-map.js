@@ -14,8 +14,12 @@
  * 4 = landmark (exit, toilets, door...)
  * 5 = structure (wall, stage, driver)
  *
- * Each seat uses 4x4 pins (= 2 Dot Pad cells). The last row and column
- * always stay empty so that neighbouring seats never touch, even the cursor.
+ * Each seat uses 4x4 pins: a 3x3 shape, then one empty row and column so
+ * that neighbouring seats never touch. An aisle (a column of 0) is therefore
+ * 4 empty pins, plus the empty column of the seat before it.
+ *
+ * The seat shapes: solid square = available, diagonal = occupied,
+ * hollow square = selected, cross = cursor.
  * To adjust after testing on the real device, only edit PATTERNS.
  */
 
@@ -29,28 +33,28 @@ const PATTERNS = {
     [0, 0, 0, 0],
     [0, 0, 0, 0]
   ],
-  // Available: small solid square, the easiest shape to find.
+  // Available: solid 3x3 square (9 pins), the most common and the fullest shape.
   1: [
-    [1, 1, 0, 0],
-    [1, 1, 0, 0],
-    [0, 0, 0, 0],
+    [1, 1, 1, 0],
+    [1, 1, 1, 0],
+    [1, 1, 1, 0],
     [0, 0, 0, 0]
   ],
-  // Occupied: a single pin.
+  // Occupied: anti-diagonal (3 pins).
   2: [
-    [1, 0, 0, 0],
-    [0, 0, 0, 0],
-    [0, 0, 0, 0],
-    [0, 0, 0, 0]
-  ],
-  // Selected: diagonal.
-  3: [
-    [1, 0, 0, 0],
-    [0, 1, 0, 0],
     [0, 0, 1, 0],
+    [0, 1, 0, 0],
+    [1, 0, 0, 0],
     [0, 0, 0, 0]
   ],
-  // Landmark: horizontal bar.
+  // Selected: hollow square (8 pins), an available seat "marked as mine".
+  3: [
+    [1, 1, 1, 0],
+    [1, 0, 1, 0],
+    [1, 1, 1, 0],
+    [0, 0, 0, 0]
+  ],
+  // Landmark: not produced by the extraction yet, shape still to be designed.
   4: [
     [1, 1, 1, 0],
     [0, 0, 0, 0],
@@ -66,11 +70,13 @@ const PATTERNS = {
   ]
 };
 
-// The cursor is the only big 3x3 square on the display.
+// The cursor is a cross (5 pins), like a viewfinder: a shape no seat uses.
+// It replaces the pattern of the seat it is on: the voice says whether that
+// seat is available or not.
 const CURSOR_PATTERN = [
+  [0, 1, 0, 0],
   [1, 1, 1, 0],
-  [1, 1, 1, 0],
-  [1, 1, 1, 0],
+  [0, 1, 0, 0],
   [0, 0, 0, 0]
 ];
 
@@ -104,12 +110,29 @@ function validateMatrix(matrix) {
   }
 }
 
+// Pins taken by the plane walls: left wall + one empty pin, and the right wall
+// (on the right, the last seat's own empty column already gives the gap).
+const WALLS_WIDTH = 3;
+
 // Number of seats that fit on the device, in rows and columns.
 export function seatCapacity(cellRows = DEFAULT_CELL_ROWS, cellColumns = DEFAULT_CELL_COLUMNS) {
   return {
     rows: Math.floor((cellRows * 4) / PATTERN_SIZE),
-    cols: Math.floor((cellColumns * 2) / PATTERN_SIZE)
+    cols: Math.floor((cellColumns * 2 - WALLS_WIDTH) / PATTERN_SIZE)
   };
+}
+
+// Adds the plane walls (window side): a continuous vertical line one empty pin
+// away from the seats. A wall is only drawn on a real edge of the plane, so a
+// section cut in width stays open on the side where the plane continues.
+function addPlaneWalls(pins, leftWall, rightWall) {
+  // The last pin row is the empty row below the last seats: no wall there.
+  const wallHeight = pins.length - 1;
+
+  return pins.map((row, y) => {
+    const isWall = y < wallHeight;
+    return [isWall && leftWall ? 1 : 0, 0, ...row, isWall && rightWall ? 1 : 0];
+  });
 }
 
 // Converts the backend matrix into a binary tactile grid.
@@ -144,7 +167,7 @@ export function convertSeatMap(matrix, cursor = null) {
 }
 
 // Splits a large seat map into smaller sections.
-// Defaults match what fits on a 30x10-cell Dot Pad (13 rows x 20 seats).
+// Defaults match what fits on a 30x10-cell Dot Pad (10 rows x 14 seats).
 export function segmentSeatMap(matrix, maxRows = seatCapacity().rows, maxCols = seatCapacity().cols) {
   validateMatrix(matrix);
 
@@ -225,7 +248,11 @@ export function buildFrame(matrix, cursor, cellRows = DEFAULT_CELL_ROWS, cellCol
     ? { r: cursor.r - section.startRow, c: cursor.c - section.startCol }
     : null;
 
-  const pins = convertSeatMap(section.matrix, localCursor);
+  const pins = addPlaneWalls(
+    convertSeatMap(section.matrix, localCursor),
+    section.startCol === 0,
+    section.startCol + section.cols === matrix[0].length
+  );
 
   return {
     hex: pinsToHex(pins, cellRows, cellColumns),
@@ -236,15 +263,36 @@ export function buildFrame(matrix, cursor, cellRows = DEFAULT_CELL_ROWS, cellCol
 }
 
 // Test image: a frame around the whole display plus a diagonal from the
-// top-left corner. If the frame looks broken on the device, fix DOT_BITS.
+// top-left to the bottom-right corner. If the frame looks broken on the device, fix DOT_BITS.
 export function buildTestFrame(cellRows = DEFAULT_CELL_ROWS, cellColumns = DEFAULT_CELL_COLUMNS) {
   const height = cellRows * 4;
   const width = cellColumns * 2;
   const pins = Array.from({ length: height }, (_, y) =>
     Array.from({ length: width }, (_, x) =>
-      (y === 0 || y === height - 1 || x === 0 || x === width - 1 || x === y) ? 1 : 0
+      (y === 0 || y === height - 1 || x === 0 || x === width - 1) ? 1 : 0
     )
   );
 
+  // The display is wider than tall (60 x 40 pins): one pin per step along the
+  // longer side, so the line reaches the opposite corner without gaps.
+  const steps = Math.max(width, height) - 1;
+  for (let i = 0; i <= steps; i++) {
+    pins[Math.round(i * (height - 1) / steps)][Math.round(i * (width - 1) / steps)] = 1;
+  }
+
   return pinsToHex(pins, cellRows, cellColumns);
+}
+
+// Pattern sample: a small 3-3 plane (seats A-C, aisle, seats D-F, 4 rows),
+// to check that the seat types can be told apart by touch.
+// Selected seat on D2, cursor on D3.
+const SAMPLE_PLANE = [
+  [1, 1, 1, 0, 1, 2, 1],
+  [1, 2, 1, 0, 3, 1, 1],
+  [1, 1, 2, 0, 1, 1, 1],
+  [2, 1, 1, 0, 1, 1, 2]
+];
+
+export function buildPatternSampleFrame(cellRows = DEFAULT_CELL_ROWS, cellColumns = DEFAULT_CELL_COLUMNS) {
+  return buildFrame(SAMPLE_PLANE, { r: 2, c: 4 }, cellRows, cellColumns).hex;
 }
