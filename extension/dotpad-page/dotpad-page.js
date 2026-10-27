@@ -6,7 +6,7 @@
 // ============================================================
 
 import { DotPadManager, traceBluetooth } from "../dotpad/dotpad-manager.js";
-import { buildFrame, buildTestFrame } from "../dotpad/tactile-map.js";
+import { buildFrame, buildTestFrame, buildPatternSampleFrame } from "../dotpad/tactile-map.js";
 
 const statusDiv = document.getElementById("status");
 const sectionDiv = document.getElementById("section");
@@ -131,7 +131,14 @@ document.getElementById("btn-disconnect").addEventListener("click", () => run("d
 
 document.getElementById("btn-test").addEventListener("click", () => run("test", async () => {
   dotpad.display(buildTestFrame(dotpad.cellRows, dotpad.cellColumns));
-  statusDiv.innerText = "Image de test envoyée : un cadre et une diagonale depuis le coin haut gauche.";
+  statusDiv.innerText = "Image de test envoyée : un cadre et une diagonale d'un coin à l'autre.";
+}));
+
+document.getElementById("btn-sample").addEventListener("click", () => run("test", async () => {
+  dotpad.display(buildPatternSampleFrame(dotpad.cellRows, dotpad.cellColumns));
+  statusDiv.innerText =
+    "Échantillon envoyé : un mini-avion de 4 rangées (A B C, couloir, D E F). " +
+    "Siège sélectionné en D2, curseur en D3.";
 }));
 
 document.getElementById("btn-up").addEventListener("click", () => run("test", async () => {

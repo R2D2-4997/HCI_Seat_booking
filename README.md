@@ -73,17 +73,17 @@ Pour l'analyse par capture d'écran, définir la clé Gemini dans la variable d'
 
 ## Motifs tactiles (Dot Pad)
 
-Chaque case = 4 × 4 picots (2 cellules du Dot Pad). La dernière ligne et la dernière colonne restent toujours vides pour séparer les sièges. Le Dot Pad affiche donc 10 rangées × 15 colonnes à la fois ; au-delà, le plan est découpé en sections.
+Chaque case = 4 × 4 picots : un motif de 3 × 3, puis une ligne et une colonne vides pour séparer les sièges (1 picot d'espace). Les parois de l'avion (côté hublots) sont une ligne verticale continue à 1 picot des sièges, à gauche et à droite. Le Dot Pad affiche donc 10 rangées × 14 colonnes à la fois ; au-delà, le plan est découpé en sections.
 
 | Code | Sens | Motif |
 |---|---|---|
 | 0 | Couloir / vide | rien |
-| 1 | Siège libre | petit carré plein (2 × 2) |
-| 2 | Siège occupé | un seul picot |
-| 3 | Siège sélectionné | diagonale de 3 picots |
-| 4 | Repère (sortie, toilettes) | barre horizontale de 3 picots |
+| 1 | Siège libre | carré plein 3 × 3 (9 picots) |
+| 2 | Siège occupé | diagonale (3 picots) |
+| 3 | Siège sélectionné | carré creux (8 picots) |
+| 4 | Repère (sortie, toilettes) | à définir (barre de 3 picots pour l'instant) |
 | 5 | Structure (mur, scène) | ligne continue |
-| — | Curseur | grand carré plein (3 × 3) |
+| — | Curseur | croix (5 picots, remplace le motif du siège) |
 
 Les motifs se règlent dans `PATTERNS` (`extension/dotpad/tactile-map.js`). Si l'image de test (bouton dans la page Dot Pad) apparaît brouillée sur le Dot Pad, corriger `DOT_BITS` dans le même fichier.
 
