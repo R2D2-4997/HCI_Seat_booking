@@ -13,12 +13,18 @@ const I18N = {
     aisle: "Couloir",
     occupied: "Siège indisponible",
     seat: "Siège",
-    selected: "sélectionné. Appuyez sur P pour passer au paiement.",
+    selected: "sélectionné. Pour passer au paiement, maintenez RP deux secondes, ou appuyez sur P.",
     selectedState: "sélectionné",
     payment: "Redirection vers la séquence de paiement.",
     noPayment: "Bouton de paiement non trouvé.",
     errBackend: "Erreur : Moteur Python non démarré.",
-    errCapture: "Erreur lors de la capture d'écran."
+    errCapture: "Erreur lors de la capture d'écran.",
+    partInfo: (part, total) => `Partie ${part} sur ${total}. `,
+    allTaken: "Tous les sièges de cette partie sont pris, passez à une autre partie. ",
+    planeStart: "Vous êtes déjà au début de l'avion.",
+    planeEnd: "Vous êtes déjà à la fin de l'avion.",
+    noSelection: "Aucun siège sélectionné.",
+    selectionCancelled: (id) => `Sélection du siège ${id} annulée.`
   },
   en: {
     langName: "English",
@@ -28,12 +34,18 @@ const I18N = {
     aisle: "Aisle",
     occupied: "Seat unavailable",
     seat: "Seat",
-    selected: "selected. Press P to proceed to payment.",
+    selected: "selected. To proceed to payment, hold RP for two seconds, or press P.",
     selectedState: "selected",
     payment: "Redirecting to payment sequence.",
     noPayment: "Payment button not found.",
     errBackend: "Error: Python engine not running.",
-    errCapture: "Screenshot capture error."
+    errCapture: "Screenshot capture error.",
+    partInfo: (part, total) => `Part ${part} of ${total}. `,
+    allTaken: "All seats in this part are taken, go to another part. ",
+    planeStart: "You are already at the front of the plane.",
+    planeEnd: "You are already at the back of the plane.",
+    noSelection: "No seat selected.",
+    selectionCancelled: (id) => `Seat ${id} selection cancelled.`
   },
   ko: {
     langName: "한국어",
@@ -43,11 +55,17 @@ const I18N = {
     aisle: "통로",
     occupied: "선택 불가 좌석",
     seat: "좌석",
-    selected: "선택되었습니다. 결제하려면 P를 누르세요.",
+    selected: "선택되었습니다. 결제하려면 RP를 2초간 누르거나 P를 누르세요.",
     selectedState: "선택됨",
     payment: "결제 페이지로 이동합니다.",
     noPayment: "결제 버튼을 찾을 수 없습니다.",
     errBackend: "오류: 파이썬 엔진이 실행되지 않았습니다.",
-    errCapture: "화면 캡처 오류입니다."
+    errCapture: "화면 캡처 오류입니다.",
+    partInfo: (part, total) => `${total}개 구역 중 ${part}번째 구역. `,
+    allTaken: "이 구역의 모든 좌석이 선택 불가입니다. 다른 구역으로 이동하세요. ",
+    planeStart: "이미 비행기의 맨 앞입니다.",
+    planeEnd: "이미 비행기의 맨 뒤입니다.",
+    noSelection: "선택된 좌석이 없습니다.",
+    selectionCancelled: (id) => `${id} 좌석 선택이 취소되었습니다.`
   }
 };
