@@ -41,8 +41,27 @@ async function sendToSeatmapTab(message) {
   }
 }
 
+// Bip joué quand un appui long sur LP / RP / F1 est assez long : en relâchant
+// maintenant, on sélectionne (LP), on passe au paiement (RP) ou on annule (F1).
+const audioCtx = new AudioContext();
+function holdBeep() {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.frequency.value = 880;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.15);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.15);
+}
+
 const dotpad = new DotPadManager({
   onSection: (direction) => sendToSeatmapTab({ action: "DOTPAD_KEY", direction, sectionRows }),
+  onMove: (key) => sendToSeatmapTab({ action: "DOTPAD_MOVE", key }),
+  onHoldReady: () => holdBeep(),
+  onHold: (action) => sendToSeatmapTab({
+    action: { select: "DOTPAD_SELECT", pay: "DOTPAD_PAY", cancel: "DOTPAD_CANCEL" }[action]
+  }),
   onDisconnect: () => { statusDiv.innerText = "Dot Pad déconnecté."; }
 });
 

@@ -7,8 +7,23 @@ import {
   DotPadScanner,
   DotPadSDK,
   DataCodes,
+  DotPadKey,
   KeyCodes
 } from "../sdk/DotPadSDK-3.0.3.js";
+
+// Function keys F1 to F4, in their order on the device.
+const FUNCTION_KEYS = [
+  KeyCodes.KeyFunction1,
+  KeyCodes.KeyFunction2,
+  KeyCodes.KeyFunction3,
+  KeyCodes.KeyFunction4
+];
+
+// How long LP / RP / F1 must be held: paying is more serious than selecting,
+// so it takes longer, to avoid paying by accident while changing section.
+const SELECT_HOLD_MS = 1000;
+const PAY_HOLD_MS = 2000;
+const CANCEL_HOLD_MS = 2000;
 
 // Rejects with `message` if `promise` takes longer than `ms`.
 function withTimeout(promise, ms, message) {
@@ -189,13 +204,55 @@ export function traceBluetooth(log) {
 
 // Manages DotPad connection, display, and button events.
 export class DotPadManager {
-  // onSection(direction): called with -1 / +1 when a panning key is pressed.
+  // onSection(direction): called with -1 / +1 on a short press of LP / RP.
+  // onMove(key): called with 1 to 4 when F1 to F4 is pressed alone.
+  // onHoldReady(action): called with "select" / "pay" / "cancel" when the key
+  //   has been held long enough: releasing it now will trigger onHold (used for a beep).
+  // onHold(action): called on release of a long press (LP: "select",
+  //   RP: "pay", F1: "cancel").
   // onDisconnect(): called when the device is lost.
-  constructor({ onSection = () => {}, onDisconnect = () => {} } = {}) {
+  constructor({
+    onSection = () => {},
+    onMove = () => {},
+    onHoldReady = () => {},
+    onHold = () => {},
+    onDisconnect = () => {}
+  } = {}) {
     this.scanner = new DotPadScanner();
     this.sdk = new DotPadSDK();
     this.device = null;
     this.lastHex = null;
+
+    // Keys read on press and release, to tell a short press from a long press.
+    const holdKeys = {
+      [DotPadKey.PanningLeft]: { short: () => onSection(-1), action: "select", holdMs: SELECT_HOLD_MS },
+      [DotPadKey.PanningRight]: { short: () => onSection(1), action: "pay", holdMs: PAY_HOLD_MS },
+      [DotPadKey.KeyFunction1]: { short: () => onMove(1), action: "cancel", holdMs: CANCEL_HOLD_MS }
+    };
+    const holds = new Map();
+
+    const onKeyDown = (device, key) => {
+      const config = holdKeys[key];
+      if (!config) return;
+
+      const hold = { ready: false };
+      hold.timer = setTimeout(() => {
+        hold.ready = true;
+        onHoldReady(config.action);
+      }, config.holdMs);
+      holds.set(key, hold);
+    };
+
+    const onKeyUp = (device, key) => {
+      const config = holdKeys[key];
+      const hold = holds.get(key);
+      if (!config || !hold) return;
+
+      clearTimeout(hold.timer);
+      holds.delete(key);
+      if (hold.ready) onHold(config.action);
+      else config.short();
+    };
 
     // Registers device status and physical button callbacks.
     this.sdk.setCallBack(
@@ -211,14 +268,13 @@ export class DotPadManager {
       (device, key, data) => {
         console.log("[DotPad] Button:", key, data);
 
-        if (key === KeyCodes.PanningLeft) {
-          onSection(-1);
-        }
-
-        if (key === KeyCodes.PanningRight) {
-          onSection(1);
-        }
-      }
+        // F2 to F4 alone (F1 is handled on release, see holdKeys).
+        // Two keys pressed together are ignored.
+        const index = FUNCTION_KEYS.indexOf(key);
+        if (index > 0) onMove(index + 1);
+      },
+      onKeyDown,
+      onKeyUp
     );
   }
 
