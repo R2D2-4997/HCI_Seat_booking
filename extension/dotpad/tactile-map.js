@@ -248,11 +248,22 @@ export function buildFrame(matrix, cursor, cellRows = DEFAULT_CELL_ROWS, cellCol
     ? { r: cursor.r - section.startRow, c: cursor.c - section.startCol }
     : null;
 
-  const pins = addPlaneWalls(
+  const rawPins = addPlaneWalls(
     convertSeatMap(section.matrix, localCursor),
     section.startCol === 0,
     section.startCol + section.cols === matrix[0].length
   );
+
+  // Center the seat map horizontally and vertically inside the Dot Pad display.
+  const targetWidth = cellColumns * 2;
+  const targetHeight = cellRows * 4;
+  const padLeft = Math.max(0, Math.floor((targetWidth - (rawPins[0]?.length || 0)) / 2));
+  const padTop = Math.max(0, Math.floor((targetHeight - rawPins.length) / 2));
+  const emptyRow = () => Array(targetWidth).fill(0);
+  const pins = [
+    ...Array.from({ length: padTop }, emptyRow),
+    ...rawPins.map(row => [...Array(padLeft).fill(0), ...row])
+  ];
 
   return {
     hex: pinsToHex(pins, cellRows, cellColumns),
@@ -295,4 +306,27 @@ const SAMPLE_PLANE = [
 
 export function buildPatternSampleFrame(cellRows = DEFAULT_CELL_ROWS, cellColumns = DEFAULT_CELL_COLUMNS) {
   return buildFrame(SAMPLE_PLANE, { r: 2, c: 4 }, cellRows, cellColumns).hex;
+}
+
+// Unpacks a hexadecimal string back into a 2D pin grid (width = cellColumns * 2, height = cellRows * 4).
+export function hexToPins(hex, cellRows = DEFAULT_CELL_ROWS, cellColumns = DEFAULT_CELL_COLUMNS) {
+  const clean = (hex || "").replace(/\s+/g, "").toUpperCase();
+  const height = cellRows * 4;
+  const width = cellColumns * 2;
+  const pins = Array.from({ length: height }, () => Array(width).fill(0));
+
+  for (let line = 0; line < cellRows; line++) {
+    for (let cell = 0; cell < cellColumns; cell++) {
+      const idx = (line * cellColumns + cell) * 2;
+      const byte = parseInt(clean.slice(idx, idx + 2), 16) || 0;
+      for (let y = 0; y < 4; y++) {
+        for (let x = 0; x < 2; x++) {
+          if (byte & DOT_BITS[y][x]) {
+            pins[line * 4 + y][cell * 2 + x] = 1;
+          }
+        }
+      }
+    }
+  }
+  return pins;
 }

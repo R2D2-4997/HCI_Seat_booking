@@ -50,7 +50,7 @@ function buildDynamicLayout(seats) {
         seatsMetadata[key] = {
           id: seatObj.id,
           type: "Standard",
-          price: seatObj.status === "occupied" ? "Indisponible" : "Disponible",
+          price: seatObj.price || (seatObj.status === "occupied" ? "Indisponible" : "Disponible"),
           status: seatObj.status
         };
         seatElements[key] = seatObj.element;

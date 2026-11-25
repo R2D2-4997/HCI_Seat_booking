@@ -102,6 +102,14 @@ function proceedToPayment() {
       } else {
         payBtn.dispatchEvent(new MouseEvent("click", eventOptions));
       }
+
+      // Sur les sites SPA (ex: aller-retour Air France), le trajet suivant charge
+      // sans recharger la page : on relance l'analyse automatiquement après transition.
+      setTimeout(() => {
+        if (typeof startAutoCapture === "function") {
+          startAutoCapture();
+        }
+      }, 1800);
     }, 600);
   } else {
     speak(t.noPayment);

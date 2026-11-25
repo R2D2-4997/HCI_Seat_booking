@@ -70,12 +70,18 @@ function analyzeSeatmapDOM() {
         status = "occupied";
       }
 
+      const priceAttr = el.getAttribute("data-price") || "";
+      const priceSource = `${priceAttr} ${aria} ${title} ${text}`;
+      const priceMatch = priceSource.match(/(?:KRW|USD|EUR|GBP|CHF|\$|€|£|₩)\s*[\d,.]+|[\d,.]+\s*(?:KRW|USD|EUR|GBP|CHF|\$|€|£|₩)/i);
+      const extractedPrice = priceMatch ? priceMatch[0].trim() : "";
+
       if (!detectedSeats.some(s => s.id === seatId)) {
         detectedSeats.push({
           id: seatId,
           row: rowNum,
           letter: letter,
           status: status,
+          price: extractedPrice,
           element: el,
           rect: rect
         });

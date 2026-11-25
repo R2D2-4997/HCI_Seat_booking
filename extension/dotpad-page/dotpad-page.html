@@ -1,68 +1,335 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>TactileSeat — Dot Pad</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TactileSeat — Dot Pad 320</title>
   <style>
+    * { box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #eceef2;
+      color: #18181b;
       margin: 0;
+      padding: 20px 16px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1.4;
     }
-    h3 {
-      margin-top: 0;
-      color: #1a365d;
-    }
-    h4 {
-      margin: 16px 0 6px;
-      color: #4a5568;
-      font-size: 13px;
-    }
-    button {
+    .wrap {
       width: 100%;
-      padding: 10px;
-      margin-bottom: 8px;
-      background-color: #0066cc;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Top Bar */
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 4px;
+    }
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: #18181b;
+      letter-spacing: -0.01em;
+    }
+    .brand span {
+      font-size: 12px;
+      color: #71717a;
+    }
+    .status-pill {
+      font-size: 12px;
       font-weight: 500;
+      color: #3f3f46;
+      background: #ffffff;
+      border: 1px solid #d4d4d8;
+      border-radius: 6px;
+      padding: 4px 10px;
     }
-    button:hover {
-      background-color: #0052a3;
+
+    /* Dot Pad 320 Industrial Chassis */
+    .chassis {
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     }
-    button.secondary {
-      background-color: #e2e8f0;
-      color: #1a202c;
+    .chassis-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      font-size: 11px;
+      color: #a1a1aa;
     }
-    #status, #section {
+    .chassis-meta label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    #pin-info {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #d4d4d8;
+    }
+
+    /* Graphic Matrix + LP / RP */
+    .screen-row {
+      display: flex;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .bezel {
+      flex: 1;
+      background: #111113;
+      border: 1px solid #3f3f46;
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #dotpad-canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 4px;
+      cursor: crosshair;
+    }
+
+    /* 20-Cell Braille Display Bar */
+    .braille-bar {
+      margin-top: 10px;
+      background: #111113;
+      border: 1px solid #3f3f46;
+      border-radius: 8px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .braille-cells {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 18px;
+      line-height: 1;
+      letter-spacing: 0.06em;
+      color: #f4f4f5;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .braille-text {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: #a1a1aa;
+      white-space: nowrap;
+    }
+
+    /* Physical Tactile Buttons */
+    .hw-btn {
+      position: relative;
+      overflow: hidden;
+      background: #3f3f46;
+      border: 1px solid #52525b;
+      border-radius: 8px;
+      color: #fafafa;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 6px;
+      box-shadow: 0 2px 0 #18181b;
+      transition: background 0.12s ease, transform 0.06s ease;
+    }
+    .hw-btn:hover { background: #52525b; }
+    .hw-btn:active, .hw-btn.is-pressed { transform: translateY(1px); box-shadow: 0 1px 0 #18181b; }
+    .hw-btn strong { font-size: 12px; font-weight: 600; }
+    .hw-btn span { font-size: 10px; color: #d4d4d8; text-align: center; line-height: 1.2; margin-top: 2px; }
+    .pan-btn { width: 52px; flex-shrink: 0; }
+    .fn-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .hold-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      width: 0%;
+      background: #fafafa;
+    }
+
+    /* Controls Panel */
+    .panel {
+      background: #ffffff;
+      border: 1px solid #d4d4d8;
+      border-radius: 10px;
+      padding: 12px 14px;
       font-size: 13px;
-      color: #333;
-      margin-top: 8px;
+    }
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+    #status { color: #27272a; font-weight: 500; font-size: 13px; }
+    #section { color: #52525b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .ui-btn {
+      padding: 6px 11px;
+      border-radius: 6px;
+      border: 1px solid #d4d4d8;
+      background: #f4f4f5;
+      color: #18181b;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .ui-btn:hover { background: #e4e4e7; }
+    .ui-btn.primary { background: #18181b; border-color: #18181b; color: #ffffff; }
+    .ui-btn.primary:hover { background: #27272a; }
+    .ui-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    details summary {
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      color: #52525b;
+    }
+    pre#log {
+      font-size: 11px;
+      background: #f4f4f5;
+      border: 1px solid #e4e4e7;
+      border-radius: 6px;
+      padding: 8px;
+      max-height: 160px;
+      overflow: auto;
+      white-space: pre-wrap;
+      margin: 10px 0 0;
+      color: #3f3f46;
     }
   </style>
 </head>
 <body>
-  <h3>TactileSeat — Dot Pad</h3>
-  <p style="font-size:12px;color:#555">Gardez cet onglet ouvert (vous pouvez l'épingler) : il maintient la connexion au Dot Pad. Revenez ensuite sur l'onglet du site de réservation.</p>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <h1>TactileSeat — Dot Pad 320</h1>
+        <span>Live Web Emulator</span>
+      </div>
+      <div class="status-pill" id="emu-badge">Ready • 30×10 cells</div>
+    </div>
 
-  <button id="btn-usb">Connecter (USB)</button>
-  <button id="btn-bluetooth">Connecter (Bluetooth)</button>
-  <button id="btn-bluetooth-all" class="secondary">Bluetooth : afficher tous les appareils</button>
-  <button id="btn-disconnect" class="secondary">Déconnecter</button>
+    <div class="chassis">
+      <div class="chassis-meta">
+        <label>
+          <input type="checkbox" id="toggle-grid">
+          <span>Show 2×4 cell grid</span>
+        </label>
+        <span id="pin-info">Hover pins to inspect</span>
+      </div>
 
-  <h4>Tests du matériel</h4>
-  <button id="btn-test" class="secondary">Image de test (cadre + diagonale)</button>
-  <button id="btn-sample" class="secondary">Échantillon des motifs de sièges</button>
-  <button id="btn-up" class="secondary">Lever tous les picots</button>
-  <button id="btn-down" class="secondary">Baisser tous les picots</button>
+      <div class="screen-row">
+        <button id="hw-lp" class="hw-btn pan-btn" title="Short press: Previous section | Hold 1s: Select seat">
+          <strong>LP</strong>
+          <span>◀ Sec<br>1s Sel</span>
+          <div id="hold-lp" class="hold-bar"></div>
+        </button>
 
-  <div id="status" role="status" aria-live="polite">Non connecté.</div>
-  <div id="section" aria-live="polite"></div>
+        <div class="bezel">
+          <canvas id="dotpad-canvas" width="720" height="480"></canvas>
+        </div>
 
-  <h4>Journal Bluetooth (débogage)</h4>
-  <pre id="log" style="font-size:11px;background:#f7fafc;border:1px solid #e2e8f0;padding:8px;max-height:300px;overflow:auto;white-space:pre-wrap;"></pre>
+        <button id="hw-rp" class="hw-btn pan-btn" title="Short press: Next section | Hold 2s: Confirm &amp; Continue">
+          <strong>RP</strong>
+          <span>Sec ▶<br>2s Next</span>
+          <div id="hold-rp" class="hold-bar"></div>
+        </button>
+      </div>
+
+      <!-- 20-Cell Braille Display Bar -->
+      <div class="braille-bar" title="20-cell Braille text line">
+        <span id="braille-cells" class="braille-cells">⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀</span>
+        <span id="braille-text" class="braille-text">IDLE</span>
+      </div>
+
+      <div class="fn-row">
+        <button id="hw-f1" class="hw-btn" title="Click: Left (F1) | Hold 2s: Cancel selection">
+          <strong>F1 • ←</strong>
+          <span>Hold 2s: Cancel</span>
+          <div id="hold-f1" class="hold-bar"></div>
+        </button>
+        <button id="hw-f2" class="hw-btn" title="Up (F2)">
+          <strong>F2 • ↑</strong>
+          <span>Row up</span>
+        </button>
+        <button id="hw-f3" class="hw-btn" title="Down (F3)">
+          <strong>F3 • ↓</strong>
+          <span>Row down</span>
+        </button>
+        <button id="hw-f4" class="hw-btn" title="Right (F4)">
+          <strong>F4 • →</strong>
+          <span>Col right</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="status-row">
+        <div id="status" role="status" aria-live="polite">Waiting for seat map capture on booking tab (Alt+S)...</div>
+        <div id="section" aria-live="polite"></div>
+      </div>
+
+      <div class="btn-group">
+        <button id="btn-sync" class="ui-btn primary">Sync from page</button>
+        <button id="btn-test" class="ui-btn">Test frame</button>
+        <button id="btn-sample" class="ui-btn">3-3 sample</button>
+        <button id="btn-up" class="ui-btn">All pins up</button>
+        <button id="btn-down" class="ui-btn">All pins down</button>
+      </div>
+    </div>
+
+    <details class="panel">
+      <summary>Hardware connection (USB / Bluetooth) &amp; debug log</summary>
+      <div class="btn-group">
+        <button id="btn-usb" class="ui-btn primary">Connect (USB)</button>
+        <button id="btn-bluetooth" class="ui-btn primary">Connect (Bluetooth)</button>
+        <button id="btn-bluetooth-all" class="ui-btn">Bluetooth: show all devices</button>
+        <button id="btn-disconnect" class="ui-btn">Disconnect</button>
+      </div>
+      <pre id="log"></pre>
+    </details>
+  </div>
 
   <script type="module" src="dotpad-page.js"></script>
 </body>

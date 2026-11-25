@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TactileSeat — Simulateur Visuel Dot Pad (30x10)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Styles pour l'effet relief 3D des pins haptiques */
+    .pin {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      transition: all 0.15s ease-in-out;
+      box-shadow: inset 0 -2px 4px rgba(0,0,0,0.4);
+    }
+    
+    /* Pin baissée (0 ou siège occupé 2) */
+    .pin-down {
+      background: #2d3748;
+      border: 1px solid #1a202c;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+      transform: scale(0.85);
+      opacity: 0.5;
+    }
+
+    /* Pin levée : Siège disponible (1) */
+    .pin-raised-seat {
+      background: linear-gradient(135deg, #6366f1, #3b82f6);
+      border: 1px solid #60a5fa;
+      box-shadow: 0 0 8px rgba(59, 130, 246, 0.6), inset 0 2px 2px rgba(255,255,255,0.4);
+      transform: scale(1);
+    }
+
+    /* Pin levée : Scène / Issue de secours (3) - Ligne 1 pin d'épaisseur */
+    .pin-feature-line {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      border: 1px solid #fbbf24;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.8), inset 0 2px 2px rgba(255,255,255,0.5);
+      transform: scale(1.05);
+    }
+
+    /* Pin survolée par le curseur (Sélection active 2x2) */
+    .pin-cursor {
+      background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+      border: 2px solid #fca5a5 !important;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.9), inset 0 2px 4px rgba(255,255,255,0.6) !important;
+      transform: scale(1.15) !important;
+      animation: pulse-cursor 1.2s infinite alternate;
+    }
+
+    @keyframes pulse-cursor {
+      0% { box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); }
+      100% { box-shadow: 0 0 16px rgba(239, 68, 68, 1); }
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans">
+
+  <!-- En-tête -->
+  <header class="bg-slate-900 border-b border-slate-800 p-4">
+    <div class="max-w-6xl mx-mx auto flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="bg-blue-600 text-white font-bold px-3 py-1.5 rounded-lg text-lg tracking-wide shadow-lg shadow-blue-500/30">
+          TactileSeat
+        </div>
+        <div>
+          <h1 class="text-xl font-semibold text-slate-100">Simulateur Visuel Dot Pad (30 × 10 Pins)</h1>
+          <p class="text-xs text-slate-400">Rendu tactile : Sièges (carrés 2×2 pins) & Lignes structurelles (1 pin)</p>
+        </div>
+      </div>
+
+      <!-- Sélecteur de Scénario -->
+      <div class="flex items-center bg-slate-800 p-1 rounded-xl border border-slate-700">
+        <button id="btn-mode-concert" onclick="switchMode('concert')" class="px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white shadow">
+          🎭 Salle de Concert
+        </button>
+        <button id="btn-mode-transport" onclick="switchMode('transport')" class="px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-slate-200">
+          ✈️ Avion / Transport
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Contenu Principal -->
+  <main class="flex-1 max-w-6xl w-full mx-auto p-4 md:p-6 flex flex-col gap-6">
+
+    <!-- Section Affichage Matériel Dot Pad -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+      <div class="flex justify-between items-center mb-4 pb-3 border-b border-slate-800">
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></span>
+          <span class="text-sm font-semibold text-emerald-400">Dot Pad WebHID — Matrice Haptique 30 × 10</span>
+        </div>
+        <div class="text-xs font-mono text-slate-400 bg-slate-800 px-3 py-1 rounded-full">
+          300 Pins Physiques Active
+        </div>
+      </div>
+
+      <!-- Grille Haptique 30 x 10 -->
+      <div class="overflow-x-auto pb-2">
+        <div id="dotpad-grid" class="grid grid-cols-30 gap-1.5 bg-slate-950 p-4 rounded-xl border border-slate-800 w-max mx-auto">
+          <!-- Les 300 pins seront injectées dynamiquement par JS -->
+        </div>
+      </div>
+
+      <!-- Légende des éléments -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-4 border-t border-slate-800/80 text-xs">
+        <div class="flex items-center gap-2.5">
+          <div class="w-4 h-4 rounded bg-blue-500 border border-blue-400 shadow-sm"></div>
+          <span class="text-slate-300"><b>Siège Libre</b> : Carré 2×2 (4 pins)</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <div class="w-4 h-4 rounded bg-slate-700 border border-slate-600"></div>
+          <span class="text-slate-400"><b>Siège Occupé</b> : Carré 2×2 (4 pins basses)</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <div class="w-4 h-4 rounded bg-amber-500 border border-amber-400 shadow-sm"></div>
+          <span class="text-slate-300"><b>Scène / Exit</b> : Ligne (1 pin d'épaisseur)</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <div class="w-4 h-4 rounded bg-red-500 border border-red-300 shadow-sm animate-pulse"></div>
+          <span class="text-slate-300"><b>Curseur Clavier</b> : Sélection (2×2 pins)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section Infos & Contrôles -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+      <!-- Carte d'Information du Siège sélectionné -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+        <div>
+          <h2 class="text-xs uppercase font-bold tracking-wider text-slate-400 mb-2">Siège Actuel (Curseur)</h2>
+          <div id="seat-id" class="text-3xl font-extrabold text-blue-400 mb-1">Siège 1A</div>
+          <div id="seat-status" class="inline-block text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 mb-3">
+            Disponible
+          </div>
+          <div id="seat-price" class="text-sm text-slate-300">Prix : <b>25€</b></div>
+        </div>
+
+        <button onclick="selectCurrentSeat()" class="mt-4 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg transition-all text-sm shadow-lg shadow-emerald-900/40">
+          Réserver le siège (Entrée)
+        </button>
+      </div>
+
+      <!-- Instructions Raccourcis Clavier -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h2 class="text-xs uppercase font-bold tracking-wider text-slate-400 mb-3">Navigation Accessible Clavier</h2>
+        <ul class="text-xs text-slate-300 space-y-2.5">
+          <li class="flex items-center justify-between">
+            <span>Déplacement de siège en siège</span>
+            <kbd class="bg-slate-800 px-2 py-1 rounded border border-slate-700 font-mono text-slate-200">← ↑ → ↓</kbd>
+          </li>
+          <li class="flex items-center justify-between">
+            <span>Valider la réservation</span>
+            <kbd class="bg-slate-800 px-2 py-1 rounded border border-slate-700 font-mono text-slate-200">Entrée / Espace</kbd>
+          </li>
+          <li class="flex items-center justify-between">
+            <span>Passer au paiement</span>
+            <kbd class="bg-slate-800 px-2 py-1 rounded border border-slate-700 font-mono text-slate-200">P</kbd>
+          </li>
+          <li class="flex items-center justify-between">
+            <span>Changer de langue vocal</span>
+            <kbd class="bg-slate-800 px-2 py-1 rounded border border-slate-700 font-mono text-slate-200">Alt + L</kbd>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Contrôles Audio & Langues -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+        <div>
+          <h2 class="text-xs uppercase font-bold tracking-wider text-slate-400 mb-3">Retour Vocal & Sonore</h2>
+          <div class="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-800 mb-3">
+            <span class="text-xs text-slate-300">Langue actuelle :</span>
+            <span id="lang-indicator" class="text-xs font-bold text-blue-400">Français (FR)</span>
+          </div>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Chaque déplacement émet une impulsion haptique simulée et une description vocale du siège sous le doigt.
+          </p>
+        </div>
+
+        <button onclick="cycleLanguage()" class="mt-4 w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2.5 rounded-lg border border-slate-700 text-sm transition-all">
+          🌐 Basculer Langue (Alt + L)
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Inspecteur de Matrice 2D (Debug WebHID) -->
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="text-xs font-bold uppercase text-slate-400">Aperçu du Buffer Binaire Transmis au Dot Pad (30 × 10)</h3>
+        <span class="text-[10px] font-mono text-slate-500">0=Baisse | 1=Siège Libre | 2=Siège Occupé | 3=Scène/Exit</span>
+      </div>
+      <pre id="matrix-debug" class="bg-slate-950 p-3 rounded-lg text-[10px] font-mono text-slate-400 overflow-x-auto leading-tight border border-slate-800"></pre>
+    </div>
+
+  </main>
+
+  <script>
+    // --- ÉTAT DU SIMULATEUR ---
+    let currentMode = "concert"; // "concert" ou "transport"
+    let currentLang = "fr";
+    let activeSeatIndex = 0;
+
+    // Voix et Audio
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const I18N = {
+      fr: { langName: "Français (FR)", seat: "Siège", aisle: "Couloir", occupied: "Indisponible", available: "Disponible", selected: "sélectionné. Appuyez sur P pour payer.", payment: "Redirection vers le paiement.", stage: "Scène", exit: "Issue de secours" },
+      en: { langName: "English (EN)", seat: "Seat", aisle: "Aisle", occupied: "Unavailable", available: "Available", selected: "selected. Press P to pay.", payment: "Redirecting to payment.", stage: "Stage", exit: "Emergency Exit" },
+      ko: { langName: "한국어 (KO)", seat: "좌석", aisle: "통로", occupied: "선택불가", available: "선택가능", selected: "선택되었습니다. P를 누르세요.", payment: "결제 페이지로 이동합니다.", stage: "무대", exit: "비상구" }
+    };
+
+    // --- STRUKTURE DES DONNÉES DES SCÉNARIOS ---
+    
+    // 1. SCÉNARIO CONCERT
+    // Row 0 : Scène (Ligne d'épaisseur 1 pin)
+    // Rows 2-3, 5-6, 8-9 : Sièges 2x2
+    const concertData = {
+      seats: [
+        // Rangée 1 (Catégorie Or)
+        { id: "1A", r: 2, c: 2, status: "available", price: "45€" },
+        { id: "1B", r: 2, c: 6, status: "available", price: "45€" },
+        { id: "1C", r: 2, c: 10, status: "occupied", price: "Indisponible" },
+        { id: "1D", r: 2, c: 18, status: "available", price: "45€" },
+        { id: "1E", r: 2, c: 22, status: "available", price: "45€" },
+        { id: "1F", r: 2, c: 26, status: "available", price: "45€" },
+        
+        // Rangée 2
+        { id: "2A", r: 5, c: 2, status: "available", price: "35€" },
+        { id: "2B", r: 5, c: 6, status: "occupied", price: "Indisponible" },
+        { id: "2C", r: 5, c: 10, status: "available", price: "35€" },
+        { id: "2D", r: 5, c: 18, status: "available", price: "35€" },
+        { id: "2E", r: 5, c: 22, status: "occupied", price: "Indisponible" },
+        { id: "2F", r: 5, c: 26, status: "available", price: "35€" },
+
+        // Rangée 3
+        { id: "3A", r: 8, c: 2, status: "available", price: "25€" },
+        { id: "3B", r: 8, c: 6, status: "available", price: "25€" },
+        { id: "3C", r: 8, c: 10, status: "available", price: "25€" },
+        { id: "3D", r: 8, c: 18, status: "available", price: "25€" },
+        { id: "3E", r: 8, c: 22, status: "available", price: "25€" },
+        { id: "3F", r: 8, c: 26, status: "available", price: "25€" }
+      ],
+      // Ligne de scène 1 pin d'épaisseur sur la rangée 0
+      lines: [
+        { name: "Scène", pins: Array.from({length: 26}, (_, i) => ({ r: 0, c: i + 2 })) }
+      ]
+    };
+
+    // 2. SCÉNARIO AVION / TRANSPORT
+    // Column 0 & 29 : Issues de secours (Lignes verticales 1 pin)
+    // Rows 1-2, 4-5, 7-8 : Sièges 2x2
+    const transportData = {
+      seats: [
+        // Rangée 1
+        { id: "1A", r: 1, c: 3, status: "occupied", price: "Indisponible" },
+        { id: "1B", r: 1, c: 7, status: "available", price: "15€" },
+        { id: "1C", r: 1, c: 11, status: "available", price: "20€" },
+        { id: "1D", r: 1, c: 17, status: "available", price: "20€" },
+        { id: "1E", r: 1, c: 21, status: "available", price: "15€" },
+        { id: "1F", r: 1, c: 25, status: "occupied", price: "Indisponible" },
+
+        // Rangée 2
+        { id: "2A", r: 4, c: 3, status: "occupied", price: "Indisponible" },
+        { id: "2B", r: 4, c: 7, status: "occupied", price: "Indisponible" },
+        { id: "2C", r: 4, c: 11, status: "available", price: "18€" },
+        { id: "2D", r: 4, c: 17, status: "available", price: "18€" },
+        { id: "2E", r: 4, c: 21, status: "occupied", price: "Indisponible" },
+        { id: "2F", r: 4, c: 25, status: "occupied", price: "Indisponible" },
+
+        // Rangée 3
+        { id: "3A", r: 7, c: 3, status: "available", price: "25€" },
+        { id: "3B", r: 7, c: 7, status: "available", price: "15€" },
+        { id: "3C", r: 7, c: 11, status: "available", price: "15€" },
+        { id: "3D", r: 7, c: 17, status: "available", price: "15€" },
+        { id: "3E", r: 7, c: 21, status: "available", price: "15€" },
+        { id: "3F", r: 7, c: 25, status: "available", price: "25€" }
+      ],
+      // Lignes de 1 pin pour les issues de secours gauche/droite
+      lines: [
+        { name: "Issue Gauche", pins: Array.from({length: 10}, (_, i) => ({ r: i, c: 0 })) },
+        { name: "Issue Droite", pins: Array.from({length: 10}, (_, i) => ({ r: i, c: 29 })) }
+      ]
+    };
+
+    // --- GENERATION DE LA MATRICE 30x10 ---
+    function generateMatrix() {
+      const matrix = Array.from({ length: 10 }, () => Array(30).fill(0));
+      const data = currentMode === "concert" ? concertData : transportData;
+
+      // 1. Dessiner les lignes de structure 1-pin (Scène / Exits) -> Valeur 3
+      data.lines.forEach(line => {
+        line.pins.forEach(p => {
+          if (p.r < 10 && p.c < 30) matrix[p.r][p.c] = 3;
+        });
+      });
+
+      // 2. Dessiner les sièges (Blocs de 2x2 pins) -> Valeur 1 (Libre) ou 2 (Occupé)
+      data.seats.forEach(seat => {
+        const val = seat.status === "available" ? 1 : 2;
+        for (let dr = 0; dr < 2; dr++) {
+          for (let dc = 0; dc < 2; dc++) {
+            const nr = seat.r + dr;
+            const nc = seat.c + dc;
+            if (nr < 10 && nc < 30) {
+              matrix[nr][nc] = val;
+            }
+          }
+        }
+      });
+
+      return matrix;
+    }
+
+    // --- RENDU VISUEL DE LA GRILLE DOT PAD ---
+    function renderGrid() {
+      const gridContainer = document.getElementById("dotpad-grid");
+      gridContainer.innerHTML = "";
+      const matrix = generateMatrix();
+      const data = currentMode === "concert" ? concertData : transportData;
+      const currentSeat = data.seats[activeSeatIndex];
+
+      // Vérifier si une pin appartient au siège actuellement sélectionné (Curseur)
+      const isCursorPin = (r, c) => {
+        if (!currentSeat) return false;
+        return (r >= currentSeat.r && r < currentSeat.r + 2 && c >= currentSeat.c && c < currentSeat.c + 2);
+      };
+
+      for (let r = 0; r < 10; r++) {
+        for (let c = 0; c < 30; c++) {
+          const pinVal = matrix[r][c];
+          const pinDiv = document.createElement("div");
+          pinDiv.className = "pin ";
+
+          if (isCursorPin(r, c)) {
+            pinDiv.className += "pin-cursor";
+          } else if (pinVal === 1) {
+            pinDiv.className += "pin-raised-seat";
+          } else if (pinVal === 3) {
+            pinDiv.className += "pin-feature-line";
+          } else {
+            pinDiv.className += "pin-down";
+          }
+
+          pinDiv.title = `Pin [${r},${c}] - Valeur: ${pinVal}`;
+          gridContainer.appendChild(pinDiv);
+        }
+      }
+
+      // Mettre à jour l'inspecteur de debug
+      updateDebugMatrix(matrix);
+
+      // Mettre à jour les informations du siège sélectionné
+      updateSeatInfo(currentSeat);
+    }
+
+    function updateDebugMatrix(matrix) {
+      const debugPre = document.getElementById("matrix-debug");
+      let text = "";
+      for (let r = 0; r < 10; r++) {
+        text += matrix[r].map(v => v === 0 ? "." : v).join(" ") + "\n";
+      }
+      debugPre.textContent = text;
+    }
+
+    function updateSeatInfo(seat) {
+      if (!seat) return;
+      const t = I18N[currentLang];
+      document.getElementById("seat-id").textContent = `${t.seat} ${seat.id}`;
+      
+      const statusEl = document.getElementById("seat-status");
+      if (seat.status === "available") {
+        statusEl.textContent = t.available;
+        statusEl.className = "inline-block text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 mb-3";
+      } else {
+        statusEl.textContent = t.occupied;
+        statusEl.className = "inline-block text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-700 text-slate-400 border border-slate-600 mb-3";
+      }
+
+      document.getElementById("seat-price").innerHTML = `Prix : <b>${seat.price}</b>`;
+    }
+
+    // --- SYNTHÈSE VOCALE ET SON DE RETOUR ---
+    function playTone(freq, duration) {
+      try {
+        if (audioCtx.state === "suspended") audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function speak(text) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      
+      const langCodes = { fr: "fr-FR", en: "en-US", ko: "ko-KR" };
+      utterance.lang = langCodes[currentLang];
+      utterance.rate = 1.15;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    function announceCurrentSeat() {
+      const data = currentMode === "concert" ? concertData : transportData;
+      const seat = data.seats[activeSeatIndex];
+      const t = I18N[currentLang];
+
+      if (!seat) return;
+
+      if (seat.status === "available") {
+        playTone(523, 0.08); // Note aigue pour siège disponible
+        speak(`${t.seat} ${seat.id}`);
+      } else {
+        playTone(280, 0.08); // Note grave pour siège occupé
+        speak(`${t.seat} ${seat.id}, ${t.occupied}`);
+      }
+    }
+
+    // --- NAVIGATION ET RACCOURCIS ---
+    function switchMode(mode) {
+      currentMode = mode;
+      activeSeatIndex = 0;
+
+      const btnConcert = document.getElementById("btn-mode-concert");
+      const btnTransport = document.getElementById("btn-mode-transport");
+
+      if (mode === "concert") {
+        btnConcert.className = "px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white shadow";
+        btnTransport.className = "px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-slate-200";
+      } else {
+        btnTransport.className = "px-4 py-2 rounded-lg text-sm font-medium transition-all bg-blue-600 text-white shadow";
+        btnConcert.className = "px-4 py-2 rounded-lg text-sm font-medium transition-all text-slate-400 hover:text-slate-200";
+      }
+
+      renderGrid();
+      announceCurrentSeat();
+    }
+
+    function selectCurrentSeat() {
+      const data = currentMode === "concert" ? concertData : transportData;
+      const seat = data.seats[activeSeatIndex];
+      const t = I18N[currentLang];
+
+      if (seat && seat.status === "available") {
+        seat.status = "occupied";
+        seat.price = "Indisponible";
+        playTone(880, 0.25);
+        speak(`${t.seat} ${seat.id} ${t.selected}`);
+        renderGrid();
+      } else if (seat) {
+        playTone(180, 0.2);
+        speak(`${t.seat} ${seat.id}, ${t.occupied}`);
+      }
+    }
+
+    function cycleLanguage() {
+      const langs = ["fr", "en", "ko"];
+      currentLang = langs[(langs.indexOf(currentLang) + 1) % langs.length];
+      document.getElementById("lang-indicator").textContent = I18N[currentLang].langName;
+      
+      const langNames = { fr: "Français", en: "English", ko: "한국어" };
+      speak(langNames[currentLang]);
+      renderGrid();
+    }
+
+    // Écouteur clavier
+    window.addEventListener("keydown", (e) => {
+      const data = currentMode === "concert" ? concertData : transportData;
+      
+      if (e.altKey && (e.code === "KeyL" || e.key === "l" || e.key === "L")) {
+        e.preventDefault();
+        cycleLanguage();
+        return;
+      }
+
+      if (e.code === "KeyP") {
+        e.preventDefault();
+        playTone(1000, 0.3);
+        speak(I18N[currentLang].payment);
+        return;
+      }
+
+      if (["ArrowRight", "ArrowDown"].includes(e.code)) {
+        e.preventDefault();
+        activeSeatIndex = (activeSeatIndex + 1) % data.seats.length;
+        renderGrid();
+        announceCurrentSeat();
+      } else if (["ArrowLeft", "ArrowUp"].includes(e.code)) {
+        e.preventDefault();
+        activeSeatIndex = (activeSeatIndex - 1 + data.seats.length) % data.seats.length;
+        renderGrid();
+        announceCurrentSeat();
+      } else if (["Enter", "Space"].includes(e.code)) {
+        e.preventDefault();
+        selectCurrentSeat();
+      }
+    });
+
+    // Initialisation au chargement
+    renderGrid();
+  </script>
+</body>
+</html>

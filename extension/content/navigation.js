@@ -15,18 +15,22 @@ function renderCurrentPosition(prefix = "") {
   drawOverlayCursor();
   updateDotPadDisplay();
 
+  const rawPrice = seatInfo?.price ? String(seatInfo.price).trim() : "";
+  const isGenericPrice = ["", "disponible", "indisponible", "available", "occupied", "free", "n/a", "-"].includes(rawPrice.toLowerCase());
+  const priceSpeech = !isGenericPrice ? `, ${rawPrice}` : "";
+
   if (cellValue === 0) {
     playTone(220, "triangle", 0.05);
     speak(prefix + t.aisle);
   } else if (cellValue === 3) {
     playTone(660, "sine", 0.08);
-    speak(`${prefix}${t.seat} ${seatInfo ? seatInfo.id : ''}, ${t.selectedState}`);
+    speak(`${prefix}${t.seat} ${seatInfo ? seatInfo.id : ''}${priceSpeech}, ${t.selectedState}`);
   } else if (cellValue === 2 || (seatInfo && seatInfo.status === "occupied")) {
     playTone(300, "triangle", 0.05);
     speak(`${prefix}${t.seat} ${seatInfo ? seatInfo.id : ''}, ${t.occupied}`);
   } else if (seatInfo) {
     playTone(523, "sine", 0.08);
-    speak(`${prefix}${t.seat} ${seatInfo.id}`);
+    speak(`${prefix}${t.seat} ${seatInfo.id}${priceSpeech}`);
   } else if (prefix) {
     speak(prefix);
   }
